@@ -1,4 +1,4 @@
-ARG BUILD_FROM
+ARG BUILD_FROM=python:3.11-alpine
 FROM $BUILD_FROM
 
 # Install system dependencies

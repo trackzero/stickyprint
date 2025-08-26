@@ -1,0 +1,24 @@
+{
+  "printer": {
+    "auto_discover": true,
+    "manual_ip": ""
+  },
+  "fonts": {
+    "default_size": 12,
+    "margin": 10,
+    "line_spacing": 1.2
+  },
+  "calendar": {
+    "default_entity": "calendar.family"
+  },
+  "discovery": {
+    "timeout": 30
+  },
+  "homeassistant": {
+    "url": "",
+    "token": ""
+  },
+  "server": {
+    "port": 8099
+  }
+}
