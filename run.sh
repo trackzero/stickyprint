@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 
 # Detect if running in Home Assistant environment
 if [ -n "$SUPERVISOR_TOKEN" ] && command -v bashio >/dev/null 2>&1; then
