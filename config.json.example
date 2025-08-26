@@ -1,0 +1,25 @@
+{
+  "_comment": "Example configuration for standalone Sticky Note Printer",
+  "printer": {
+    "auto_discover": true,
+    "manual_ip": ""
+  },
+  "fonts": {
+    "default_size": 12,
+    "margin": 10,
+    "line_spacing": 1.2
+  },
+  "calendar": {
+    "default_entity": "calendar.family"
+  },
+  "discovery": {
+    "timeout": 30
+  },
+  "homeassistant": {
+    "url": "http://homeassistant.local:8123",
+    "token": "your_long_lived_access_token_here"
+  },
+  "server": {
+    "port": 8099
+  }
+}

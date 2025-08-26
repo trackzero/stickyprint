@@ -1,0 +1,52 @@
+version: '3.8'
+
+services:
+  stickyprint:
+    build: .
+    container_name: stickyprint
+    restart: unless-stopped
+    ports:
+      - "8099:8099"
+    volumes:
+      # Configuration file
+      - ./config.json:/app/config.json:ro
+      # Optional: bind mount for logs
+      - ./logs:/app/logs
+    environment:
+      # Alternative: use environment variables instead of config file
+      - STICKYPRINT_AUTO_DISCOVER=true
+      - STICKYPRINT_MANUAL_IP=
+      - STICKYPRINT_FONT_SIZE=12
+      - STICKYPRINT_MARGIN=10
+      - STICKYPRINT_LINE_SPACING=1.2
+      - STICKYPRINT_CALENDAR_ENTITY=calendar.family
+      - STICKYPRINT_DISCOVERY_TIMEOUT=30
+      - STICKYPRINT_HA_URL=http://homeassistant.local:8123
+      - STICKYPRINT_HA_TOKEN=your_token_here
+      - STICKYPRINT_PORT=8099
+    networks:
+      - stickyprint-network
+    # Enable host network for printer discovery
+    # Uncomment the following line if printer discovery doesn't work
+    # network_mode: host
+
+networks:
+  stickyprint-network:
+    driver: bridge
+
+# Alternative standalone configuration with host networking
+# This version is better for printer auto-discovery
+---
+version: '3.8'
+
+services:
+  stickyprint-host:
+    build: .
+    container_name: stickyprint-host
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - ./config.json:/app/config.json:ro
+      - ./logs:/app/logs
+    environment:
+      - STICKYPRINT_PORT=8099

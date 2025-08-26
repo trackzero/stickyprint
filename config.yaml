@@ -1,0 +1,46 @@
+name: "Sticky Note Printer"
+description: "Print notifications, QR codes, calendar events, and todo lists to IPP-compatible sticky note printers"
+version: "1.0.0"
+slug: "stickyprint"
+init: false
+arch:
+  - armhf
+  - armv7
+  - aarch64
+  - amd64
+  - i386
+startup: application
+boot: auto
+hassio_api: true
+hassio_role: default
+homeassistant_api: true
+host_network: true
+options:
+  printer:
+    auto_discover: true
+    manual_ip: ""
+  fonts:
+    default_size: 12
+    margin: 10
+    line_spacing: 1.2
+  calendar:
+    default_entity: "calendar.family"
+  discovery:
+    timeout: 30
+schema:
+  printer:
+    auto_discover: bool
+    manual_ip: str?
+  fonts:
+    default_size: int(8,24)
+    margin: int(5,20) 
+    line_spacing: float(1.0,2.0)
+  calendar:
+    default_entity: str
+  discovery:
+    timeout: int(10,60)
+ports:
+  8099/tcp: 8099
+services:
+  - mqtt:want
+  - mysql:want

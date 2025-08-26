@@ -1,0 +1,561 @@
+import asyncio
+import logging
+import os
+import json
+from datetime import datetime
+from typing import Dict, Any, Optional
+from aiohttp import web, web_request
+from aiohttp.web import middleware
+from .ha_integration import StickyPrintService
+from .config import UniversalConfig
+
+# Set up logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+class StickyPrintServer:
+    """HTTP server for sticky note printing service"""
+    
+    def __init__(self):
+        self.app = web.Application(middlewares=[self.cors_middleware])
+        self.service: Optional[StickyPrintService] = None
+        self.setup_routes()
+    
+    @middleware
+    async def cors_middleware(self, request, handler):
+        """Handle CORS for API requests"""
+        response = await handler(request)
+        response.headers['Access-Control-Allow-Origin'] = '*'
+        response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
+        response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
+        return response
+    
+    def setup_routes(self):
+        """Set up HTTP routes"""
+        # API endpoints
+        self.app.router.add_get('/api/status', self.get_status)
+        self.app.router.add_post('/api/print/text', self.print_text)
+        self.app.router.add_post('/api/print/qr', self.print_qr_code)
+        self.app.router.add_post('/api/print/calendar', self.print_calendar)
+        self.app.router.add_post('/api/print/todo', self.print_todo_list)
+        self.app.router.add_post('/api/rediscover', self.rediscover_printer)
+        
+        # Home Assistant notification endpoint
+        self.app.router.add_post('/api/notify', self.handle_notification)
+        
+        # Health check
+        self.app.router.add_get('/health', self.health_check)
+        
+        # Static files (for potential web UI)
+        self.app.router.add_get('/', self.serve_index)
+    
+    async def initialize_service(self):
+        """Initialize the sticky print service"""
+        try:
+            config = self._load_config()
+            self.service = StickyPrintService(config)
+            await self.service.initialize()
+            logger.info("Sticky Print Service initialized successfully")
+            
+        except Exception as e:
+            logger.error(f"Failed to initialize service: {e}")
+            raise
+    
+    def _load_config(self) -> Dict[str, Any]:
+        """Load configuration using universal config loader"""
+        try:
+            universal_config = UniversalConfig()
+            
+            # Log mode information
+            if universal_config.is_ha_addon():
+                logger.info("Detected Home Assistant add-on environment")
+            else:
+                logger.info("Running in standalone mode")
+                if not universal_config.has_homeassistant_api():
+                    logger.info("No Home Assistant API configured - calendar/todo features disabled")
+            
+            return universal_config.to_dict()
+            
+        except Exception as e:
+            logger.error(f"Failed to load configuration: {e}")
+            # Return minimal default config
+            return {
+                'auto_discover': True,
+                'manual_ip': '',
+                'font_size': 12,
+                'margin': 10,
+                'line_spacing': 1.2,
+                'calendar_entity': 'calendar.family',
+                'discovery_timeout': 30,
+                'ha_url': '',
+                'ha_token': '',
+                'port': 8099
+            }
+    
+    # API Handlers
+    
+    async def get_status(self, request: web_request.Request) -> web.Response:
+        """Get service status"""
+        try:
+            if not self.service:
+                return web.json_response({
+                    'error': 'Service not initialized'
+                }, status=500)
+            
+            status = await self.service.get_status()
+            return web.json_response(status)
+            
+        except Exception as e:
+            logger.error(f"Error getting status: {e}")
+            return web.json_response({
+                'error': str(e)
+            }, status=500)
+    
+    async def print_text(self, request: web_request.Request) -> web.Response:
+        """Print text endpoint"""
+        try:
+            if not self.service:
+                return web.json_response({'error': 'Service not initialized'}, status=500)
+            
+            data = await request.json()
+            text = data.get('text', '')
+            font_type = data.get('font', 'sans-serif')
+            job_name = data.get('job_name', 'Text')
+            
+            if not text:
+                return web.json_response({'error': 'Text is required'}, status=400)
+            
+            success = await self.service.print_text(text, font_type, job_name)
+            
+            return web.json_response({
+                'success': success,
+                'job_name': job_name,
+                'font_type': font_type
+            })
+            
+        except Exception as e:
+            logger.error(f"Error printing text: {e}")
+            return web.json_response({'error': str(e)}, status=500)
+    
+    async def print_qr_code(self, request: web_request.Request) -> web.Response:
+        """Print QR code endpoint"""
+        try:
+            if not self.service:
+                return web.json_response({'error': 'Service not initialized'}, status=500)
+            
+            data = await request.json()
+            qr_data = data.get('data', '')
+            job_name = data.get('job_name', 'QRCode')
+            
+            if not qr_data:
+                return web.json_response({'error': 'QR data is required'}, status=400)
+            
+            success = await self.service.print_qr_code(qr_data, job_name)
+            
+            return web.json_response({
+                'success': success,
+                'job_name': job_name
+            })
+            
+        except Exception as e:
+            logger.error(f"Error printing QR code: {e}")
+            return web.json_response({'error': str(e)}, status=500)
+    
+    async def print_calendar(self, request: web_request.Request) -> web.Response:
+        """Print calendar events endpoint"""
+        try:
+            if not self.service:
+                return web.json_response({'error': 'Service not initialized'}, status=500)
+            
+            data = await request.json()
+            calendar_entity = data.get('calendar_entity')
+            font_type = data.get('font', 'sans-serif')
+            job_name = data.get('job_name', 'Calendar')
+            
+            success = await self.service.print_calendar_today(calendar_entity, font_type, job_name)
+            
+            return web.json_response({
+                'success': success,
+                'job_name': job_name,
+                'calendar_entity': calendar_entity or self.service.default_calendar
+            })
+            
+        except Exception as e:
+            logger.error(f"Error printing calendar: {e}")
+            return web.json_response({'error': str(e)}, status=500)
+    
+    async def print_todo_list(self, request: web_request.Request) -> web.Response:
+        """Print todo list endpoint"""
+        try:
+            if not self.service:
+                return web.json_response({'error': 'Service not initialized'}, status=500)
+            
+            data = await request.json()
+            todo_entity = data.get('todo_entity', '')
+            font_type = data.get('font', 'console')
+            job_name = data.get('job_name', 'TodoList')
+            
+            if not todo_entity:
+                return web.json_response({'error': 'Todo entity is required'}, status=400)
+            
+            success = await self.service.print_todo_list(todo_entity, font_type, job_name)
+            
+            return web.json_response({
+                'success': success,
+                'job_name': job_name,
+                'todo_entity': todo_entity
+            })
+            
+        except Exception as e:
+            logger.error(f"Error printing todo list: {e}")
+            return web.json_response({'error': str(e)}, status=500)
+    
+    async def rediscover_printer(self, request: web_request.Request) -> web.Response:
+        """Rediscover printer endpoint"""
+        try:
+            if not self.service:
+                return web.json_response({'error': 'Service not initialized'}, status=500)
+            
+            success = await self.service.rediscover_printer()
+            
+            return web.json_response({
+                'success': success,
+                'message': 'Printer rediscovery completed' if success else 'No printer found'
+            })
+            
+        except Exception as e:
+            logger.error(f"Error rediscovering printer: {e}")
+            return web.json_response({'error': str(e)}, status=500)
+    
+    async def handle_notification(self, request: web_request.Request) -> web.Response:
+        """Handle Home Assistant notification"""
+        try:
+            if not self.service:
+                return web.json_response({'error': 'Service not initialized'}, status=500)
+            
+            data = await request.json()
+            message = data.get('message', '')
+            title = data.get('title', '')
+            notification_data = data.get('data', {})
+            
+            if not message:
+                return web.json_response({'error': 'Message is required'}, status=400)
+            
+            success = await self.service.handle_notification(message, title, notification_data)
+            
+            return web.json_response({
+                'success': success,
+                'message': 'Notification printed' if success else 'Failed to print notification'
+            })
+            
+        except Exception as e:
+            logger.error(f"Error handling notification: {e}")
+            return web.json_response({'error': str(e)}, status=500)
+    
+    async def health_check(self, request: web_request.Request) -> web.Response:
+        """Health check endpoint"""
+        return web.json_response({
+            'status': 'healthy',
+            'timestamp': datetime.now().isoformat(),
+            'service_initialized': self.service is not None
+        })
+    
+    async def serve_index(self, request: web_request.Request) -> web.Response:
+        """Serve enhanced web interface with testing forms"""
+        # Get current status
+        try:
+            status = await self.service.get_status() if self.service else {}
+            printer_status = status.get('printer', {}).get('status', 'unknown')
+            running_mode = 'Home Assistant Add-on' if status.get('config', {}).get('ha_url') else 'Standalone'
+        except:
+            printer_status = 'unknown'
+            running_mode = 'Unknown'
+
+        html = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Sticky Note Printer</title>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1">
+            <style>
+                body {{ font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }}
+                .container {{ max-width: 800px; margin: 0 auto; background: white; padding: 20px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }}
+                .status {{ padding: 10px; margin: 10px 0; border-radius: 5px; }}
+                .success {{ background-color: #d4edda; border: 1px solid #c3e6cb; color: #155724; }}
+                .error {{ background-color: #f8d7da; border: 1px solid #f5c6cb; color: #721c24; }}
+                .info {{ background-color: #d1ecf1; border: 1px solid #bee5eb; color: #0c5460; }}
+                .warning {{ background-color: #fff3cd; border: 1px solid #ffeaa7; color: #856404; }}
+                
+                .form-section {{ margin: 20px 0; padding: 15px; border: 1px solid #ddd; border-radius: 5px; }}
+                .form-section h3 {{ margin-top: 0; }}
+                .form-group {{ margin: 10px 0; }}
+                label {{ display: block; margin-bottom: 5px; font-weight: bold; }}
+                input, textarea, select {{ width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 3px; box-sizing: border-box; }}
+                textarea {{ height: 80px; resize: vertical; }}
+                button {{ background: #007bff; color: white; padding: 10px 15px; border: none; border-radius: 3px; cursor: pointer; }}
+                button:hover {{ background: #0056b3; }}
+                button:disabled {{ background: #ccc; cursor: not-allowed; }}
+                
+                .api-section {{ background: #f8f9fa; padding: 15px; border-radius: 5px; margin: 20px 0; }}
+                .api-section code {{ background: #e9ecef; padding: 2px 5px; border-radius: 3px; }}
+                
+                .result {{ margin: 10px 0; padding: 10px; border-radius: 3px; font-weight: bold; }}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <h1>🖨️ Sticky Note Printer</h1>
+                
+                <div class="status {'success' if printer_status == 'connected' else 'error' if printer_status == 'disconnected' else 'info'}">
+                    <h3>Service Status</h3>
+                    <p><strong>Mode:</strong> {running_mode}</p>
+                    <p><strong>Printer:</strong> {printer_status.title()}</p>
+                    <p><strong>API Endpoint:</strong> <code>/api/notify</code></p>
+                    <p><strong>Status:</strong> <a href="/api/status" target="_blank">/api/status</a></p>
+                </div>
+                
+                <!-- Test Forms -->
+                <div class="form-section">
+                    <h3>📝 Print Text</h3>
+                    <form onsubmit="printText(event)">
+                        <div class="form-group">
+                            <label for="text-content">Text to Print:</label>
+                            <textarea id="text-content" placeholder="Enter text to print..." required></textarea>
+                        </div>
+                        <div class="form-group">
+                            <label for="text-font">Font:</label>
+                            <select id="text-font">
+                                <option value="sans-serif">Sans-serif (Clean)</option>
+                                <option value="console">Console (Monospace)</option>
+                                <option value="handwriting">Handwriting</option>
+                            </select>
+                        </div>
+                        <button type="submit">Print Text</button>
+                        <div id="text-result" class="result" style="display:none;"></div>
+                    </form>
+                </div>
+                
+                <div class="form-section">
+                    <h3>📱 Print QR Code</h3>
+                    <form onsubmit="printQR(event)">
+                        <div class="form-group">
+                            <label for="qr-data">QR Code Data:</label>
+                            <input id="qr-data" type="text" placeholder="URL, text, or data..." required>
+                        </div>
+                        <button type="submit">Print QR Code</button>
+                        <div id="qr-result" class="result" style="display:none;"></div>
+                    </form>
+                </div>
+                
+                <div class="form-section">
+                    <h3>📅 Print Calendar Events</h3>
+                    <form onsubmit="printCalendar(event)">
+                        <div class="form-group">
+                            <label for="calendar-entity">Calendar Entity (optional):</label>
+                            <input id="calendar-entity" type="text" placeholder="calendar.family">
+                        </div>
+                        <div class="form-group">
+                            <label for="calendar-font">Font:</label>
+                            <select id="calendar-font">
+                                <option value="sans-serif">Sans-serif (Clean)</option>
+                                <option value="console">Console (Monospace)</option>
+                                <option value="handwriting">Handwriting</option>
+                            </select>
+                        </div>
+                        <button type="submit">Print Today's Events</button>
+                        <div id="calendar-result" class="result" style="display:none;"></div>
+                    </form>
+                </div>
+                
+                <div class="form-section">
+                    <h3>✅ Print Todo List</h3>
+                    <form onsubmit="printTodo(event)">
+                        <div class="form-group">
+                            <label for="todo-entity">Todo Entity:</label>
+                            <input id="todo-entity" type="text" placeholder="todo.shopping" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="todo-font">Font:</label>
+                            <select id="todo-font">
+                                <option value="console" selected>Console (Monospace)</option>
+                                <option value="sans-serif">Sans-serif (Clean)</option>
+                                <option value="handwriting">Handwriting</option>
+                            </select>
+                        </div>
+                        <button type="submit">Print Todo List</button>
+                        <div id="todo-result" class="result" style="display:none;"></div>
+                    </form>
+                </div>
+                
+                <div class="form-section">
+                    <h3>🔍 Printer Discovery</h3>
+                    <button onclick="discoverPrinter()">Rediscover Printer</button>
+                    <div id="discover-result" class="result" style="display:none;"></div>
+                </div>
+                
+                <!-- API Documentation -->
+                <div class="api-section">
+                    <h3>🔌 API Endpoints</h3>
+                    <ul>
+                        <li><strong>POST /api/print/text</strong> - Print plain text</li>
+                        <li><strong>POST /api/print/qr</strong> - Print QR codes</li>
+                        <li><strong>POST /api/print/calendar</strong> - Print calendar events</li>
+                        <li><strong>POST /api/print/todo</strong> - Print todo lists</li>
+                        <li><strong>POST /api/notify</strong> - Home Assistant notification endpoint</li>
+                        <li><strong>POST /api/rediscover</strong> - Force printer rediscovery</li>
+                        <li><strong>GET /api/status</strong> - Get service status</li>
+                    </ul>
+                    
+                    <h4>Font Types</h4>
+                    <ul>
+                        <li><code>sans-serif</code> - Clean, readable font (DejaVu Sans)</li>
+                        <li><code>console</code> - Monospace font (DejaVu Sans Mono)</li>
+                        <li><code>handwriting</code> - Handwritten-style font (Liberation Sans)</li>
+                    </ul>
+                </div>
+                
+                <footer style="text-align: center; margin-top: 30px; color: #666;">
+                    <p><em>Sticky Note Printer - Universal Home Assistant Add-on & Standalone Application</em></p>
+                </footer>
+            </div>
+
+            <script>
+            function showResult(elementId, success, message) {{
+                const result = document.getElementById(elementId);
+                result.className = `result ${{success ? 'success' : 'error'}}`;
+                result.textContent = message;
+                result.style.display = 'block';
+                setTimeout(() => result.style.display = 'none', 5000);
+            }}
+
+            async function printText(event) {{
+                event.preventDefault();
+                const text = document.getElementById('text-content').value;
+                const font = document.getElementById('text-font').value;
+                
+                try {{
+                    const response = await fetch('/api/print/text', {{
+                        method: 'POST',
+                        headers: {{'Content-Type': 'application/json'}},
+                        body: JSON.stringify({{text, font, job_name: 'Web-Text'}})
+                    }});
+                    const result = await response.json();
+                    showResult('text-result', result.success, result.success ? 'Text printed successfully!' : 'Failed to print text');
+                }} catch (error) {{
+                    showResult('text-result', false, 'Error: ' + error.message);
+                }}
+            }}
+
+            async function printQR(event) {{
+                event.preventDefault();
+                const data = document.getElementById('qr-data').value;
+                
+                try {{
+                    const response = await fetch('/api/print/qr', {{
+                        method: 'POST',
+                        headers: {{'Content-Type': 'application/json'}},
+                        body: JSON.stringify({{data, job_name: 'Web-QR'}})
+                    }});
+                    const result = await response.json();
+                    showResult('qr-result', result.success, result.success ? 'QR code printed successfully!' : 'Failed to print QR code');
+                }} catch (error) {{
+                    showResult('qr-result', false, 'Error: ' + error.message);
+                }}
+            }}
+
+            async function printCalendar(event) {{
+                event.preventDefault();
+                const calendar_entity = document.getElementById('calendar-entity').value || null;
+                const font = document.getElementById('calendar-font').value;
+                
+                try {{
+                    const response = await fetch('/api/print/calendar', {{
+                        method: 'POST',
+                        headers: {{'Content-Type': 'application/json'}},
+                        body: JSON.stringify({{calendar_entity, font, job_name: 'Web-Calendar'}})
+                    }});
+                    const result = await response.json();
+                    showResult('calendar-result', result.success, result.success ? 'Calendar printed successfully!' : 'Failed to print calendar');
+                }} catch (error) {{
+                    showResult('calendar-result', false, 'Error: ' + error.message);
+                }}
+            }}
+
+            async function printTodo(event) {{
+                event.preventDefault();
+                const todo_entity = document.getElementById('todo-entity').value;
+                const font = document.getElementById('todo-font').value;
+                
+                try {{
+                    const response = await fetch('/api/print/todo', {{
+                        method: 'POST',
+                        headers: {{'Content-Type': 'application/json'}},
+                        body: JSON.stringify({{todo_entity, font, job_name: 'Web-Todo'}})
+                    }});
+                    const result = await response.json();
+                    showResult('todo-result', result.success, result.success ? 'Todo list printed successfully!' : 'Failed to print todo list');
+                }} catch (error) {{
+                    showResult('todo-result', false, 'Error: ' + error.message);
+                }}
+            }}
+
+            async function discoverPrinter() {{
+                try {{
+                    const response = await fetch('/api/rediscover', {{
+                        method: 'POST',
+                        headers: {{'Content-Type': 'application/json'}},
+                        body: JSON.stringify({{}})
+                    }});
+                    const result = await response.json();
+                    showResult('discover-result', result.success, result.message || (result.success ? 'Printer discovered!' : 'No printer found'));
+                }} catch (error) {{
+                    showResult('discover-result', false, 'Error: ' + error.message);
+                }}
+            }}
+            </script>
+        </body>
+        </html>
+        """
+        return web.Response(text=html, content_type='text/html')
+
+async def create_app() -> web.Application:
+    """Create and configure the web application"""
+    server = StickyPrintServer()
+    await server.initialize_service()
+    return server.app
+
+def main():
+    """Main entry point"""
+    logger.info("Starting Sticky Note Printer Add-on...")
+    
+    try:
+        # Create and run the web application
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
+        app = loop.run_until_complete(create_app())
+        
+        # Get port from config
+        config = UniversalConfig()
+        port = config.get('port', 8099)
+        
+        # Run the web server
+        web.run_app(
+            app,
+            host='0.0.0.0',
+            port=port,
+            access_log=logger
+        )
+        
+    except KeyboardInterrupt:
+        logger.info("Shutting down...")
+    except Exception as e:
+        logger.error(f"Failed to start server: {e}")
+        raise
+
+if __name__ == '__main__':
+    main()
