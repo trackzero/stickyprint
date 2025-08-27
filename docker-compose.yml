@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   stickyprint:
     build: .
@@ -7,11 +5,14 @@ services:
     restart: unless-stopped
     ports:
       - "8099:8099"
+    privileged: true
     volumes:
       # Configuration file
       - ./config.json:/app/config.json:ro
       # Optional: bind mount for logs
       - ./logs:/app/logs
+      # System directories needed for avahi/dbus
+      - /var/run/dbus:/var/run/dbus:rw
     environment:
       # Alternative: use environment variables instead of config file
       - STICKYPRINT_AUTO_DISCOVER=true

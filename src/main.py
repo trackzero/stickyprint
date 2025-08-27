@@ -337,12 +337,46 @@ class StickyPrintServer:
             <div class="container">
                 <h1>🖨️ Sticky Note Printer</h1>
                 
-                <div class="status {'success' if printer_status == 'connected' else 'error' if printer_status == 'disconnected' else 'info'}">
-                    <h3>Service Status</h3>
+                <div class="status {'success' if printer_status == 'connected' else 'error' if printer_status == 'disconnected' else 'warning'}">
+                    <h3>Service Status <button onclick="refreshStatus()" style="font-size: 12px; padding: 2px 8px;">🔄 Refresh</button></h3>
                     <p><strong>Mode:</strong> {running_mode}</p>
-                    <p><strong>Printer:</strong> {printer_status.title()}</p>
+                    <p><strong>Printer:</strong> <span id="printer-status">{printer_status.title() if printer_status != 'unknown' else 'No Printer Configured'}</span></p>
                     <p><strong>API Endpoint:</strong> <code>/api/notify</code></p>
                     <p><strong>Status:</strong> <a href="/api/status" target="_blank">/api/status</a></p>
+                </div>
+                
+                <!-- Quick Printer Setup - Make this prominent -->
+                <div class="form-section" style="border: 2px solid #007bff; background: #f8f9ff;">
+                    <h3>🖨️ Printer Setup</h3>
+                    <p><em>Configure your sticky note printer to start printing!</em></p>
+                    
+                    <div style="display: flex; gap: 10px; margin-bottom: 15px;">
+                        <button onclick="discoverPrinter()" style="flex: 1;">🔍 Auto-Discover</button>
+                        <button onclick="showManualConfig()" style="flex: 1;">⚙️ Manual Setup</button>
+                    </div>
+                    
+                    <div id="manual-config" style="display: none; padding: 15px; background: white; border: 1px solid #ddd; border-radius: 5px;">
+                        <h4>Manual Printer Configuration</h4>
+                        <form onsubmit="configurePrinter(event)">
+                            <div style="display: flex; gap: 10px; align-items: end;">
+                                <div style="flex: 1;">
+                                    <label for="printer-ip">Printer IP Address:</label>
+                                    <input id="printer-ip" type="text" placeholder="192.168.1.100" required>
+                                </div>
+                                <div style="width: 100px;">
+                                    <label for="printer-port">Port:</label>
+                                    <input id="printer-port" type="number" placeholder="631" value="631">
+                                </div>
+                                <button type="submit" style="height: 38px;">Configure</button>
+                            </div>
+                            <div style="margin-top: 10px;">
+                                <label for="printer-path">IPP Path:</label>
+                                <input id="printer-path" type="text" placeholder="/ipp/print" value="/ipp/print">
+                            </div>
+                        </form>
+                    </div>
+                    
+                    <div id="printer-setup-result" class="result" style="display:none;"></div>
                 </div>
                 
                 <!-- Test Forms -->
@@ -564,6 +598,47 @@ class StickyPrintServer:
                 }}
             }}
 
+            function showManualConfig() {{
+                const configDiv = document.getElementById('manual-config');
+                if (configDiv.style.display === 'none') {{
+                    configDiv.style.display = 'block';
+                }} else {{
+                    configDiv.style.display = 'none';
+                }}
+            }}
+
+            async function refreshStatus() {{
+                try {{
+                    const response = await fetch('/api/status');
+                    const status = await response.json();
+                    
+                    const printerStatusSpan = document.getElementById('printer-status');
+                    let printerStatus = 'No Printer Configured';
+                    let statusClass = 'warning';
+                    
+                    if (status.printer && status.printer.status) {{
+                        if (status.printer.status === 'connected') {{
+                            printerStatus = 'Connected';
+                            statusClass = 'success';
+                        }} else if (status.printer.status === 'disconnected') {{
+                            printerStatus = 'Disconnected';
+                            statusClass = 'error';
+                        }} else {{
+                            printerStatus = status.printer.status;
+                        }}
+                    }}
+                    
+                    printerStatusSpan.textContent = printerStatus;
+                    
+                    // Update the status container class
+                    const statusContainer = printerStatusSpan.closest('.status');
+                    statusContainer.className = `status ${{statusClass}}`;
+                    
+                }} catch (error) {{
+                    console.error('Failed to refresh status:', error);
+                }}
+            }}
+
             async function configurePrinter(event) {{
                 event.preventDefault();
                 const printer_ip = document.getElementById('printer-ip').value.trim();
@@ -571,6 +646,7 @@ class StickyPrintServer:
                 const path = document.getElementById('printer-path').value || '/ipp/print';
                 
                 if (!printer_ip) {{
+                    showResult('printer-setup-result', false, 'Printer IP is required');
                     showResult('configure-result', false, 'Printer IP is required');
                     return;
                 }}
@@ -582,11 +658,29 @@ class StickyPrintServer:
                         body: JSON.stringify({{printer_ip, port, path}})
                     }});
                     const result = await response.json();
-                    showResult('configure-result', result.success, result.message || (result.success ? 'Printer configured successfully!' : 'Failed to configure printer'));
+                    const success = result.success;
+                    const message = result.message || (success ? 'Printer configured successfully!' : 'Failed to configure printer');
+                    
+                    // Show result in both places
+                    showResult('printer-setup-result', success, message);
+                    showResult('configure-result', success, message);
+                    
+                    // Refresh status if successful
+                    if (success) {{
+                        setTimeout(() => {{
+                            refreshStatus();
+                        }}, 1000);
+                    }}
+                    
                 }} catch (error) {{
-                    showResult('configure-result', false, 'Error: ' + error.message);
+                    const message = 'Error: ' + error.message;
+                    showResult('printer-setup-result', false, message);
+                    showResult('configure-result', false, message);
                 }}
             }}
+
+            // Auto-refresh status every 30 seconds
+            setInterval(refreshStatus, 30000);
             </script>
         </body>
         </html>
