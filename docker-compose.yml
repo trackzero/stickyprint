@@ -1,10 +1,10 @@
 services:
+  # Default service using host networking for better printer connectivity
   stickyprint:
     build: .
     container_name: stickyprint
     restart: unless-stopped
-    ports:
-      - "8099:8099"
+    network_mode: host
     privileged: true
     volumes:
       # Configuration file
@@ -25,22 +25,34 @@ services:
       - STICKYPRINT_HA_URL=http://homeassistant.local:8123
       - STICKYPRINT_HA_TOKEN=your_token_here
       - STICKYPRINT_PORT=8099
-    networks:
-      - stickyprint-network
 
-  # Alternative service with host networking for better printer discovery
-  stickyprint-host:
+  # Alternative service with bridge networking (if needed for specific setups)
+  stickyprint-bridge:
     build: .
-    container_name: stickyprint-host
+    container_name: stickyprint-bridge
     restart: unless-stopped
-    network_mode: host
+    ports:
+      - "8099:8099"
+    privileged: true
     volumes:
       - ./config.json:/app/config.json:ro
       - ./logs:/app/logs
+      - /var/run/dbus:/var/run/dbus:rw
     environment:
+      - STICKYPRINT_AUTO_DISCOVER=true
+      - STICKYPRINT_MANUAL_IP=
+      - STICKYPRINT_FONT_SIZE=12
+      - STICKYPRINT_MARGIN=10
+      - STICKYPRINT_LINE_SPACING=1.2
+      - STICKYPRINT_CALENDAR_ENTITY=calendar.family
+      - STICKYPRINT_DISCOVERY_TIMEOUT=30
+      - STICKYPRINT_HA_URL=http://homeassistant.local:8123
+      - STICKYPRINT_HA_TOKEN=your_token_here
       - STICKYPRINT_PORT=8099
+    networks:
+      - stickyprint-network
     profiles:
-      - host-network
+      - bridge-network
 
 networks:
   stickyprint-network:

@@ -44,6 +44,9 @@ class StickyPrintServer:
         self.app.router.add_post('/api/rediscover', self.rediscover_printer)
         self.app.router.add_post('/api/configure_printer', self.configure_printer)
         
+        # Image serving for inline display
+        self.app.router.add_get('/api/image/{filename}', self.serve_image)
+        
         # Home Assistant notification endpoint
         self.app.router.add_post('/api/notify', self.handle_notification)
         
@@ -131,10 +134,19 @@ class StickyPrintServer:
             
             success = await self.service.print_text(text, font_type, job_name)
             
+            # Get the generated image path for inline display
+            image_path = None
+            if success and self.service.printer:
+                temp_path = self.service.printer.get_last_image_path()
+                if temp_path:
+                    import os
+                    image_path = f"/api/image/{os.path.basename(temp_path)}"
+            
             return web.json_response({
                 'success': success,
                 'job_name': job_name,
-                'font_type': font_type
+                'font_type': font_type,
+                'image_url': image_path
             })
             
         except Exception as e:
@@ -156,9 +168,18 @@ class StickyPrintServer:
             
             success = await self.service.print_qr_code(qr_data, job_name)
             
+            # Get the generated image path for inline display
+            image_path = None
+            if success and self.service.printer:
+                temp_path = self.service.printer.get_last_image_path()
+                if temp_path:
+                    import os
+                    image_path = f"/api/image/{os.path.basename(temp_path)}"
+            
             return web.json_response({
                 'success': success,
-                'job_name': job_name
+                'job_name': job_name,
+                'image_url': image_path
             })
             
         except Exception as e:
@@ -178,10 +199,19 @@ class StickyPrintServer:
             
             success = await self.service.print_calendar_today(calendar_entity, font_type, job_name)
             
+            # Get the generated image path for inline display
+            image_path = None
+            if success and self.service.printer:
+                temp_path = self.service.printer.get_last_image_path()
+                if temp_path:
+                    import os
+                    image_path = f"/api/image/{os.path.basename(temp_path)}"
+            
             return web.json_response({
                 'success': success,
                 'job_name': job_name,
-                'calendar_entity': calendar_entity or self.service.default_calendar
+                'calendar_entity': calendar_entity or self.service.default_calendar,
+                'image_url': image_path
             })
             
         except Exception as e:
@@ -204,10 +234,19 @@ class StickyPrintServer:
             
             success = await self.service.print_todo_list(todo_entity, font_type, job_name)
             
+            # Get the generated image path for inline display
+            image_path = None
+            if success and self.service.printer:
+                temp_path = self.service.printer.get_last_image_path()
+                if temp_path:
+                    import os
+                    image_path = f"/api/image/{os.path.basename(temp_path)}"
+            
             return web.json_response({
                 'success': success,
                 'job_name': job_name,
-                'todo_entity': todo_entity
+                'todo_entity': todo_entity,
+                'image_url': image_path
             })
             
         except Exception as e:
@@ -247,9 +286,18 @@ class StickyPrintServer:
             
             success = await self.service.handle_notification(message, title, notification_data)
             
+            # Get the generated image path for inline display
+            image_path = None
+            if success and self.service.printer:
+                temp_path = self.service.printer.get_last_image_path()
+                if temp_path:
+                    import os
+                    image_path = f"/api/image/{os.path.basename(temp_path)}"
+            
             return web.json_response({
                 'success': success,
-                'message': 'Notification printed' if success else 'Failed to print notification'
+                'message': 'Notification printed' if success else 'Failed to print notification',
+                'image_url': image_path
             })
             
         except Exception as e:
@@ -281,6 +329,38 @@ class StickyPrintServer:
         except Exception as e:
             logger.error(f"Error configuring printer: {e}")
             return web.json_response({'error': str(e)}, status=500)
+    
+    async def serve_image(self, request: web_request.Request) -> web.Response:
+        """Serve generated images for inline display"""
+        try:
+            filename = request.match_info['filename']
+            
+            if not self.service or not self.service.printer:
+                return web.Response(status=404, text="Service not available")
+            
+            # Security: only allow PNG files and basic filename validation
+            if not filename.endswith('.png') or '/' in filename or '..' in filename:
+                return web.Response(status=400, text="Invalid filename")
+            
+            # Get the temp directory path
+            temp_dir = self.service.printer.temp_dir
+            file_path = os.path.join(temp_dir, filename)
+            
+            # Check if file exists
+            if not os.path.exists(file_path):
+                return web.Response(status=404, text="Image not found")
+            
+            # Serve the image
+            with open(file_path, 'rb') as f:
+                return web.Response(
+                    body=f.read(),
+                    content_type='image/png',
+                    headers={'Cache-Control': 'no-cache, no-store, must-revalidate'}
+                )
+                
+        except Exception as e:
+            logger.error(f"Error serving image: {e}")
+            return web.Response(status=500, text="Error serving image")
     
     async def health_check(self, request: web_request.Request) -> web.Response:
         """Health check endpoint"""
@@ -331,6 +411,9 @@ class StickyPrintServer:
                 .api-section code {{ background: #e9ecef; padding: 2px 5px; border-radius: 3px; }}
                 
                 .result {{ margin: 10px 0; padding: 10px; border-radius: 3px; font-weight: bold; }}
+                .image-preview {{ margin: 10px 0; text-align: center; }}
+                .image-preview img {{ max-width: 100%; height: auto; border: 2px solid #007bff; border-radius: 5px; background: white; padding: 10px; }}
+                .image-preview p {{ margin: 5px 0; font-style: italic; color: #666; }}
             </style>
         </head>
         <body>
@@ -452,31 +535,6 @@ class StickyPrintServer:
                     </form>
                 </div>
                 
-                <div class="form-section">
-                    <h3>🔍 Printer Discovery & Configuration</h3>
-                    <button onclick="discoverPrinter()">Auto-Discover Printer</button>
-                    <div id="discover-result" class="result" style="display:none;"></div>
-                    
-                    <hr style="margin: 15px 0;">
-                    
-                    <h4>Manual Printer Configuration</h4>
-                    <form onsubmit="configurePrinter(event)">
-                        <div class="form-group">
-                            <label for="printer-ip">Printer IP Address:</label>
-                            <input id="printer-ip" type="text" placeholder="192.168.1.100" required>
-                        </div>
-                        <div class="form-group">
-                            <label for="printer-port">Port (optional):</label>
-                            <input id="printer-port" type="number" placeholder="631" value="631">
-                        </div>
-                        <div class="form-group">
-                            <label for="printer-path">IPP Path (optional):</label>
-                            <input id="printer-path" type="text" placeholder="/ipp/print" value="/ipp/print">
-                        </div>
-                        <button type="submit">Configure Printer</button>
-                        <div id="configure-result" class="result" style="display:none;"></div>
-                    </form>
-                </div>
                 
                 <!-- API Documentation -->
                 <div class="api-section">
@@ -505,12 +563,31 @@ class StickyPrintServer:
             </div>
 
             <script>
-            function showResult(elementId, success, message) {{
+            function showResult(elementId, success, message, imageUrl = null) {{
                 const result = document.getElementById(elementId);
                 result.className = `result ${{success ? 'success' : 'error'}}`;
-                result.textContent = message;
+                
+                // Clear previous content
+                result.innerHTML = '';
+                
+                // Add message
+                const messageElement = document.createElement('div');
+                messageElement.textContent = message;
+                result.appendChild(messageElement);
+                
+                // Add image preview if available
+                if (success && imageUrl) {{
+                    const imagePreview = document.createElement('div');
+                    imagePreview.className = 'image-preview';
+                    imagePreview.innerHTML = `
+                        <p>Generated Image Preview:</p>
+                        <img src="${{imageUrl}}" alt="Generated sticky note preview" />
+                    `;
+                    result.appendChild(imagePreview);
+                }}
+                
                 result.style.display = 'block';
-                setTimeout(() => result.style.display = 'none', 5000);
+                setTimeout(() => result.style.display = 'none', 10000); // Show longer for images
             }}
 
             async function printText(event) {{
@@ -525,7 +602,12 @@ class StickyPrintServer:
                         body: JSON.stringify({{text, font, job_name: 'Web-Text'}})
                     }});
                     const result = await response.json();
-                    showResult('text-result', result.success, result.success ? 'Text printed successfully!' : 'Failed to print text');
+                    showResult(
+                        'text-result', 
+                        result.success, 
+                        result.success ? 'Text printed successfully!' : 'Failed to print text',
+                        result.image_url
+                    );
                 }} catch (error) {{
                     showResult('text-result', false, 'Error: ' + error.message);
                 }}
@@ -542,7 +624,12 @@ class StickyPrintServer:
                         body: JSON.stringify({{data, job_name: 'Web-QR'}})
                     }});
                     const result = await response.json();
-                    showResult('qr-result', result.success, result.success ? 'QR code printed successfully!' : 'Failed to print QR code');
+                    showResult(
+                        'qr-result', 
+                        result.success, 
+                        result.success ? 'QR code printed successfully!' : 'Failed to print QR code',
+                        result.image_url
+                    );
                 }} catch (error) {{
                     showResult('qr-result', false, 'Error: ' + error.message);
                 }}
@@ -560,7 +647,12 @@ class StickyPrintServer:
                         body: JSON.stringify({{calendar_entity, font, job_name: 'Web-Calendar'}})
                     }});
                     const result = await response.json();
-                    showResult('calendar-result', result.success, result.success ? 'Calendar printed successfully!' : 'Failed to print calendar');
+                    showResult(
+                        'calendar-result', 
+                        result.success, 
+                        result.success ? 'Calendar printed successfully!' : 'Failed to print calendar',
+                        result.image_url
+                    );
                 }} catch (error) {{
                     showResult('calendar-result', false, 'Error: ' + error.message);
                 }}
@@ -578,7 +670,12 @@ class StickyPrintServer:
                         body: JSON.stringify({{todo_entity, font, job_name: 'Web-Todo'}})
                     }});
                     const result = await response.json();
-                    showResult('todo-result', result.success, result.success ? 'Todo list printed successfully!' : 'Failed to print todo list');
+                    showResult(
+                        'todo-result', 
+                        result.success, 
+                        result.success ? 'Todo list printed successfully!' : 'Failed to print todo list',
+                        result.image_url
+                    );
                 }} catch (error) {{
                     showResult('todo-result', false, 'Error: ' + error.message);
                 }}
@@ -592,9 +689,16 @@ class StickyPrintServer:
                         body: JSON.stringify({{}})
                     }});
                     const result = await response.json();
-                    showResult('discover-result', result.success, result.message || (result.success ? 'Printer discovered!' : 'No printer found'));
+                    showResult('printer-setup-result', result.success, result.message || (result.success ? 'Printer discovered!' : 'No printer found'));
+                    
+                    // Refresh status if successful
+                    if (result.success) {{
+                        setTimeout(() => {{
+                            refreshStatus();
+                        }}, 1000);
+                    }}
                 }} catch (error) {{
-                    showResult('discover-result', false, 'Error: ' + error.message);
+                    showResult('printer-setup-result', false, 'Error: ' + error.message);
                 }}
             }}
 
@@ -647,7 +751,6 @@ class StickyPrintServer:
                 
                 if (!printer_ip) {{
                     showResult('printer-setup-result', false, 'Printer IP is required');
-                    showResult('configure-result', false, 'Printer IP is required');
                     return;
                 }}
                 
@@ -661,9 +764,7 @@ class StickyPrintServer:
                     const success = result.success;
                     const message = result.message || (success ? 'Printer configured successfully!' : 'Failed to configure printer');
                     
-                    // Show result in both places
                     showResult('printer-setup-result', success, message);
-                    showResult('configure-result', success, message);
                     
                     // Refresh status if successful
                     if (success) {{
@@ -673,9 +774,7 @@ class StickyPrintServer:
                     }}
                     
                 }} catch (error) {{
-                    const message = 'Error: ' + error.message;
-                    showResult('printer-setup-result', false, message);
-                    showResult('configure-result', false, message);
+                    showResult('printer-setup-result', false, 'Error: ' + error.message);
                 }}
             }}
 

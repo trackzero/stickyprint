@@ -1,0 +1,17 @@
+{
+	# Get printer attributes test
+	NAME "Get printer attributes"
+	OPERATION Get-Printer-Attributes
+	GROUP operation-attributes-tag
+	ATTR charset attributes-charset utf-8
+	ATTR naturalLanguage attributes-natural-language en
+	ATTR uri printer-uri $uri
+	ATTR name requesting-user-name $user
+
+	STATUS successful-ok
+
+	# What we expect back
+	EXPECT printer-state OF-TYPE enum IN-RANGE 3,9
+	EXPECT printer-state-reasons OF-TYPE keyword
+	EXPECT printer-uri-supported OF-TYPE uri
+}

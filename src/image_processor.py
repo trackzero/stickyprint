@@ -64,7 +64,8 @@ class StickyNoteRenderer:
         wrapped_lines = self._wrap_text(text, font, max_width)
         
         # Calculate image height
-        line_height = int(font.getsize("Ay")[1] * self.line_spacing)
+        bbox = font.getbbox("Ay")
+        line_height = int((bbox[3] - bbox[1]) * self.line_spacing)
         image_height = (len(wrapped_lines) * line_height) + (2 * self.margin)
         
         # Create image
@@ -173,7 +174,8 @@ class StickyNoteRenderer:
             test_line = current_line + (" " if current_line else "") + word
             
             # Check if the line fits
-            if font.getsize(test_line)[0] <= max_width:
+            bbox = font.getbbox(test_line)
+            if bbox[2] - bbox[0] <= max_width:
                 current_line = test_line
             else:
                 if current_line:

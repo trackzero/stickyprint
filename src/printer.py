@@ -14,6 +14,7 @@ class StickyNotePrinter:
     def __init__(self, printer: Optional[IPPPrinter] = None):
         self.printer = printer
         self.temp_dir = tempfile.mkdtemp(prefix="stickyprint_")
+        self.last_image_path = None  # For inline display
         logger.info(f"Created temp directory: {self.temp_dir}")
     
     def set_printer(self, printer: IPPPrinter):
@@ -32,10 +33,15 @@ class StickyNotePrinter:
             temp_bmp = os.path.join(self.temp_dir, f"{job_name}.bmp")
             self._save_as_bmp3(image, temp_bmp)
             
+            # Also save as PNG for web display
+            temp_png = os.path.join(self.temp_dir, f"{job_name}.png")
+            image.save(temp_png, 'PNG')
+            self.last_image_path = temp_png
+            
             # Print using ipptool
             success = await self._send_to_printer(temp_bmp, job_name)
             
-            # Clean up temp file
+            # Clean up BMP file but keep PNG for display
             try:
                 os.unlink(temp_bmp)
             except:
@@ -68,7 +74,13 @@ class StickyNotePrinter:
     async def _send_to_printer(self, bmp_path: str, job_name: str) -> bool:
         """Send BMP file to printer using ipptool"""
         try:
-            # Create ipptool command
+            # Add network connectivity debugging
+            logger.info(f"Attempting to connect to printer: {self.printer.uri}")
+            
+            # Test network connectivity first
+            await self._debug_network_connectivity()
+            
+            # Create ipptool command matching the working format
             cmd = [
                 'ipptool',
                 '-v',           # Verbose
@@ -76,7 +88,7 @@ class StickyNotePrinter:
                 '-f', bmp_path, # File to print
                 self.printer.uri,
                 '-d', 'fileType=image/reverse-encoding-bmp',  # File type
-                'print-job.test'  # IPP test file
+                '/app/print-job.test'  # IPP test file with absolute path
             ]
             
             logger.info(f"Printing to {self.printer.uri}: {job_name}")
@@ -91,12 +103,17 @@ class StickyNotePrinter:
             
             stdout, stderr = await process.communicate()
             
+            logger.info(f"ipptool return code: {process.returncode}")
+            logger.info(f"ipptool stdout: {stdout.decode()}")
+            if stderr:
+                logger.warning(f"ipptool stderr: {stderr.decode()}")
+            
             if process.returncode == 0:
                 logger.info(f"Print job successful: {job_name}")
-                logger.debug(f"ipptool output: {stdout.decode()}")
                 return True
             else:
-                logger.error(f"Print job failed: {stderr.decode()}")
+                logger.error(f"Print job failed with return code {process.returncode}")
+                logger.error(f"stderr: {stderr.decode()}")
                 return False
                 
         except FileNotFoundError:
@@ -105,6 +122,51 @@ class StickyNotePrinter:
         except Exception as e:
             logger.error(f"Error sending to printer: {e}")
             return False
+    
+    async def _debug_network_connectivity(self):
+        """Debug network connectivity to printer"""
+        try:
+            import socket
+            from urllib.parse import urlparse
+            
+            # Parse printer URI
+            parsed = urlparse(self.printer.uri)
+            host = parsed.hostname
+            port = parsed.port or 631
+            
+            logger.info(f"Testing TCP connectivity to {host}:{port}")
+            
+            # Test TCP connection
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(5)
+            
+            try:
+                result = sock.connect_ex((host, port))
+                if result == 0:
+                    logger.info(f"TCP connection to {host}:{port} successful")
+                else:
+                    logger.error(f"TCP connection to {host}:{port} failed with code {result}")
+                sock.close()
+            except Exception as e:
+                logger.error(f"TCP connection test failed: {e}")
+                
+            # Also test ping if available
+            try:
+                process = await asyncio.create_subprocess_exec(
+                    'ping', '-c', '1', '-W', '5', host,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                stdout, stderr = await process.communicate()
+                if process.returncode == 0:
+                    logger.info(f"Ping to {host} successful")
+                else:
+                    logger.warning(f"Ping to {host} failed: {stderr.decode()}")
+            except Exception as e:
+                logger.debug(f"Ping test failed (may not be available): {e}")
+                
+        except Exception as e:
+            logger.warning(f"Network debugging failed: {e}")
     
     async def test_connection(self) -> bool:
         """Test connection to printer"""
@@ -157,6 +219,10 @@ class StickyNotePrinter:
                 "status": "error",
                 "error": str(e)
             }
+    
+    def get_last_image_path(self) -> Optional[str]:
+        """Get path to the last generated image for display"""
+        return self.last_image_path
     
     def cleanup(self):
         """Clean up temporary files"""

@@ -115,7 +115,7 @@ class PrinterDiscovery:
                 'ipptool',
                 '-t',
                 uri,
-                'get-printer-attributes.test',
+                '/app/get-printer-attributes.test',
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
@@ -129,6 +129,9 @@ class PrinterDiscovery:
                 logger.warning(f"Printer {uri} verification failed: {stderr.decode()}")
                 return False
                 
+        except FileNotFoundError:
+            logger.error("ipptool command not found. Make sure CUPS is installed.")
+            return False
         except Exception as e:
             logger.error(f"Error verifying printer {uri}: {e}")
             return False

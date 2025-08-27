@@ -8,7 +8,10 @@ RUN apk add --no-cache \
     py3-pip \
     imagemagick \
     imagemagick-dev \
+    cups \
     cups-client \
+    cups-dev \
+    ipptool \
     avahi \
     avahi-tools \
     avahi-compat-libdns_sd \
@@ -47,6 +50,8 @@ RUN pip3 install --no-cache-dir -r requirements.txt
 # Copy source code
 COPY src/ ./src/
 COPY run.sh .
+COPY get-printer-attributes.test .
+COPY print-job.test .
 
 # Make run script executable
 RUN chmod +x run.sh
