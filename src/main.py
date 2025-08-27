@@ -42,6 +42,7 @@ class StickyPrintServer:
         self.app.router.add_post('/api/print/calendar', self.print_calendar)
         self.app.router.add_post('/api/print/todo', self.print_todo_list)
         self.app.router.add_post('/api/rediscover', self.rediscover_printer)
+        self.app.router.add_post('/api/configure_printer', self.configure_printer)
         
         # Home Assistant notification endpoint
         self.app.router.add_post('/api/notify', self.handle_notification)
@@ -255,6 +256,32 @@ class StickyPrintServer:
             logger.error(f"Error handling notification: {e}")
             return web.json_response({'error': str(e)}, status=500)
     
+    async def configure_printer(self, request: web_request.Request) -> web.Response:
+        """Configure printer with manual IP"""
+        try:
+            if not self.service:
+                return web.json_response({'error': 'Service not initialized'}, status=500)
+            
+            data = await request.json()
+            printer_ip = data.get('printer_ip', '').strip()
+            port = data.get('port', 631)
+            path = data.get('path', '/ipp/print')
+            
+            if not printer_ip:
+                return web.json_response({'error': 'Printer IP is required'}, status=400)
+            
+            # Configure printer with manual IP
+            success = await self.service.configure_manual_printer(printer_ip, port, path)
+            
+            return web.json_response({
+                'success': success,
+                'message': f'Printer configured at {printer_ip}:{port}' if success else 'Failed to configure printer'
+            })
+            
+        except Exception as e:
+            logger.error(f"Error configuring printer: {e}")
+            return web.json_response({'error': str(e)}, status=500)
+    
     async def health_check(self, request: web_request.Request) -> web.Response:
         """Health check endpoint"""
         return web.json_response({
@@ -392,9 +419,29 @@ class StickyPrintServer:
                 </div>
                 
                 <div class="form-section">
-                    <h3>🔍 Printer Discovery</h3>
-                    <button onclick="discoverPrinter()">Rediscover Printer</button>
+                    <h3>🔍 Printer Discovery & Configuration</h3>
+                    <button onclick="discoverPrinter()">Auto-Discover Printer</button>
                     <div id="discover-result" class="result" style="display:none;"></div>
+                    
+                    <hr style="margin: 15px 0;">
+                    
+                    <h4>Manual Printer Configuration</h4>
+                    <form onsubmit="configurePrinter(event)">
+                        <div class="form-group">
+                            <label for="printer-ip">Printer IP Address:</label>
+                            <input id="printer-ip" type="text" placeholder="192.168.1.100" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="printer-port">Port (optional):</label>
+                            <input id="printer-port" type="number" placeholder="631" value="631">
+                        </div>
+                        <div class="form-group">
+                            <label for="printer-path">IPP Path (optional):</label>
+                            <input id="printer-path" type="text" placeholder="/ipp/print" value="/ipp/print">
+                        </div>
+                        <button type="submit">Configure Printer</button>
+                        <div id="configure-result" class="result" style="display:none;"></div>
+                    </form>
                 </div>
                 
                 <!-- API Documentation -->
@@ -514,6 +561,30 @@ class StickyPrintServer:
                     showResult('discover-result', result.success, result.message || (result.success ? 'Printer discovered!' : 'No printer found'));
                 }} catch (error) {{
                     showResult('discover-result', false, 'Error: ' + error.message);
+                }}
+            }}
+
+            async function configurePrinter(event) {{
+                event.preventDefault();
+                const printer_ip = document.getElementById('printer-ip').value.trim();
+                const port = parseInt(document.getElementById('printer-port').value) || 631;
+                const path = document.getElementById('printer-path').value || '/ipp/print';
+                
+                if (!printer_ip) {{
+                    showResult('configure-result', false, 'Printer IP is required');
+                    return;
+                }}
+                
+                try {{
+                    const response = await fetch('/api/configure_printer', {{
+                        method: 'POST',
+                        headers: {{'Content-Type': 'application/json'}},
+                        body: JSON.stringify({{printer_ip, port, path}})
+                    }});
+                    const result = await response.json();
+                    showResult('configure-result', result.success, result.message || (result.success ? 'Printer configured successfully!' : 'Failed to configure printer'));
+                }} catch (error) {{
+                    showResult('configure-result', false, 'Error: ' + error.message);
                 }}
             }}
             </script>

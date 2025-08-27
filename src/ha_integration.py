@@ -262,6 +262,37 @@ class StickyPrintService:
                 "timestamp": datetime.now().isoformat()
             }
     
+    async def configure_manual_printer(self, printer_ip: str, port: int = 631, 
+                                     path: str = "/ipp/print") -> bool:
+        """Configure printer manually by IP address"""
+        try:
+            logger.info(f"Configuring manual printer at {printer_ip}:{port}{path}")
+            
+            # Create manual printer configuration
+            manual_printer = self.discovery.create_manual_printer(printer_ip, port, path)
+            
+            # Verify the manual printer is accessible
+            if await self.discovery.verify_printer(manual_printer.uri):
+                # Set the printer and update config
+                self.printer.set_printer(manual_printer)
+                logger.info(f"Successfully configured manual printer: {manual_printer}")
+                
+                # Update config to remember this manual printer
+                self.config['manual_ip'] = printer_ip
+                if port != 631:
+                    self.config['manual_port'] = port
+                if path != "/ipp/print":
+                    self.config['manual_path'] = path
+                    
+                return True
+            else:
+                logger.error(f"Manual printer {printer_ip}:{port}{path} is not accessible")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Error configuring manual printer: {e}")
+            return False
+    
     async def rediscover_printer(self) -> bool:
         """Force rediscovery of printer"""
         try:

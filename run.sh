@@ -1,5 +1,16 @@
 #!/bin/sh
 
+# Start required services for printer discovery
+echo "Starting D-Bus service..."
+mkdir -p /var/run/dbus
+dbus-daemon --system --fork
+
+echo "Starting Avahi daemon for mDNS/Bonjour discovery..."
+avahi-daemon --daemonize
+
+# Give services time to start
+sleep 2
+
 # Detect if running in Home Assistant environment
 if [ -n "$SUPERVISOR_TOKEN" ] && command -v bashio >/dev/null 2>&1; then
     echo "Detected Home Assistant add-on environment"

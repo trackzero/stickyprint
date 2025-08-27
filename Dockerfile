@@ -9,7 +9,10 @@ RUN apk add --no-cache \
     imagemagick \
     imagemagick-dev \
     cups-client \
+    avahi \
     avahi-tools \
+    avahi-compat-libdns_sd \
+    dbus \
     gcc \
     musl-dev \
     libffi-dev \
