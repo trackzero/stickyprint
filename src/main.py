@@ -41,6 +41,10 @@ class StickyPrintServer:
         self.app.router.add_post('/api/print/qr', self.print_qr_code)
         self.app.router.add_post('/api/print/calendar', self.print_calendar)
         self.app.router.add_post('/api/print/todo', self.print_todo_list)
+        self.app.router.add_post('/api/preview/text', self.preview_text)
+        self.app.router.add_post('/api/preview/qr', self.preview_qr_code)
+        self.app.router.add_post('/api/preview/calendar', self.preview_calendar)
+        self.app.router.add_post('/api/preview/todo', self.preview_todo_list)
         self.app.router.add_post('/api/rediscover', self.rediscover_printer)
         self.app.router.add_post('/api/configure_printer', self.configure_printer)
         
@@ -89,9 +93,9 @@ class StickyPrintServer:
             return {
                 'auto_discover': True,
                 'manual_ip': '',
-                'font_size': 12,
-                'margin': 10,
-                'line_spacing': 1.2,
+                'font_size': 48,
+                'margin': 20,
+                'line_spacing': 1.3,
                 'calendar_entity': 'calendar.family',
                 'discovery_timeout': 30,
                 'ha_url': '',
@@ -127,12 +131,13 @@ class StickyPrintServer:
             data = await request.json()
             text = data.get('text', '')
             font_type = data.get('font', 'sans-serif')
+            font_size = data.get('font_size', None)
             job_name = data.get('job_name', 'Text')
             
             if not text:
                 return web.json_response({'error': 'Text is required'}, status=400)
             
-            success = await self.service.print_text(text, font_type, job_name)
+            success = await self.service.print_text(text, font_type, job_name, font_size)
             
             # Get the generated image path for inline display
             image_path = None
@@ -195,9 +200,10 @@ class StickyPrintServer:
             data = await request.json()
             calendar_entity = data.get('calendar_entity')
             font_type = data.get('font', 'sans-serif')
+            font_size = data.get('font_size', None)
             job_name = data.get('job_name', 'Calendar')
             
-            success = await self.service.print_calendar_today(calendar_entity, font_type, job_name)
+            success = await self.service.print_calendar_today(calendar_entity, font_type, job_name, font_size)
             
             # Get the generated image path for inline display
             image_path = None
@@ -227,12 +233,13 @@ class StickyPrintServer:
             data = await request.json()
             todo_entity = data.get('todo_entity', '')
             font_type = data.get('font', 'console')
+            font_size = data.get('font_size', None)
             job_name = data.get('job_name', 'TodoList')
             
             if not todo_entity:
                 return web.json_response({'error': 'Todo entity is required'}, status=400)
             
-            success = await self.service.print_todo_list(todo_entity, font_type, job_name)
+            success = await self.service.print_todo_list(todo_entity, font_type, job_name, font_size)
             
             # Get the generated image path for inline display
             image_path = None
@@ -302,6 +309,173 @@ class StickyPrintServer:
             
         except Exception as e:
             logger.error(f"Error handling notification: {e}")
+            return web.json_response({'error': str(e)}, status=500)
+
+    async def preview_text(self, request: web_request.Request) -> web.Response:
+        """Preview text (generate image without printing)"""
+        try:
+            if not self.service:
+                return web.json_response({'error': 'Service not initialized'}, status=500)
+            
+            data = await request.json()
+            text = data.get('text', '')
+            font_type = data.get('font', 'sans-serif')
+            font_size = data.get('font_size', None)
+            job_name = data.get('job_name', 'Preview')
+            
+            if not text:
+                return web.json_response({'error': 'Text is required'}, status=400)
+            
+            # Generate image without printing
+            image = self.service.renderer.render_text(text, font_type, font_size=font_size)
+            
+            # Save image for preview
+            import tempfile
+            import os
+            temp_path = os.path.join(tempfile.gettempdir(), f"{job_name}_preview.png")
+            image.save(temp_path, 'PNG')
+            
+            image_url = f"/api/image/{os.path.basename(temp_path)}"
+            
+            return web.json_response({
+                'success': True,
+                'job_name': job_name,
+                'font_type': font_type,
+                'font_size': font_size,
+                'image_url': image_url,
+                'preview_only': True
+            })
+            
+        except Exception as e:
+            logger.error(f"Error previewing text: {e}")
+            return web.json_response({'error': str(e)}, status=500)
+    
+    async def preview_qr_code(self, request: web_request.Request) -> web.Response:
+        """Preview QR code (generate image without printing)"""
+        try:
+            if not self.service:
+                return web.json_response({'error': 'Service not initialized'}, status=500)
+            
+            data = await request.json()
+            qr_data = data.get('data', '')
+            job_name = data.get('job_name', 'QR-Preview')
+            
+            if not qr_data:
+                return web.json_response({'error': 'QR data is required'}, status=400)
+            
+            # Generate QR image without printing
+            image = self.service.renderer.render_qr_code(qr_data)
+            
+            # Save image for preview
+            import tempfile
+            import os
+            temp_path = os.path.join(tempfile.gettempdir(), f"{job_name}_preview.png")
+            image.save(temp_path, 'PNG')
+            
+            image_url = f"/api/image/{os.path.basename(temp_path)}"
+            
+            return web.json_response({
+                'success': True,
+                'job_name': job_name,
+                'qr_data': qr_data,
+                'image_url': image_url,
+                'preview_only': True
+            })
+            
+        except Exception as e:
+            logger.error(f"Error previewing QR code: {e}")
+            return web.json_response({'error': str(e)}, status=500)
+    
+    async def preview_calendar(self, request: web_request.Request) -> web.Response:
+        """Preview calendar (generate image without printing)"""
+        try:
+            if not self.service:
+                return web.json_response({'error': 'Service not initialized'}, status=500)
+            
+            data = await request.json()
+            calendar_entity = data.get('calendar_entity')
+            font_type = data.get('font', 'sans-serif')
+            font_size = data.get('font_size', None)
+            job_name = data.get('job_name', 'Calendar-Preview')
+            
+            # For preview, we'll use sample calendar data if no HA connection
+            if not hasattr(self.service, 'ha_api') or not self.service.ha_api or not calendar_entity:
+                # Generate sample calendar preview
+                sample_events = [
+                    {"summary": "Sample Event 1", "start": {"dateTime": "2025-08-27T10:00:00"}},
+                    {"summary": "Sample Event 2", "start": {"dateTime": "2025-08-27T14:30:00"}},
+                    {"summary": "All Day Event", "start": {}}
+                ]
+                image = self.service.renderer.render_calendar_events(sample_events, font_type, font_size=font_size)
+            else:
+                events = await self.service.ha_api.get_calendar_events(calendar_entity)
+                image = self.service.renderer.render_calendar_events(events, font_type, font_size=font_size)
+            
+            # Save image for preview
+            import tempfile
+            import os
+            temp_path = os.path.join(tempfile.gettempdir(), f"{job_name}_preview.png")
+            image.save(temp_path, 'PNG')
+            
+            image_url = f"/api/image/{os.path.basename(temp_path)}"
+            
+            return web.json_response({
+                'success': True,
+                'job_name': job_name,
+                'font_type': font_type,
+                'font_size': font_size,
+                'image_url': image_url,
+                'preview_only': True
+            })
+            
+        except Exception as e:
+            logger.error(f"Error previewing calendar: {e}")
+            return web.json_response({'error': str(e)}, status=500)
+    
+    async def preview_todo_list(self, request: web_request.Request) -> web.Response:
+        """Preview todo list (generate image without printing)"""
+        try:
+            if not self.service:
+                return web.json_response({'error': 'Service not initialized'}, status=500)
+            
+            data = await request.json()
+            todo_entity = data.get('todo_entity', '')
+            font_type = data.get('font', 'console')
+            font_size = data.get('font_size', None)
+            job_name = data.get('job_name', 'Todo-Preview')
+            
+            # For preview, we'll use sample todo data if no entity provided
+            if not hasattr(self.service, 'ha_api') or not self.service.ha_api or not todo_entity:
+                # Generate sample todo preview
+                sample_todos = [
+                    {"summary": "Sample Task 1", "completed": False},
+                    {"summary": "Completed Task", "completed": True},
+                    {"summary": "Another Task", "completed": False}
+                ]
+                image = self.service.renderer.render_todo_list(sample_todos, font_type, font_size=font_size)
+            else:
+                todos = await self.service.ha_api.get_todo_items(todo_entity)
+                image = self.service.renderer.render_todo_list(todos, font_type, font_size=font_size)
+            
+            # Save image for preview
+            import tempfile
+            import os
+            temp_path = os.path.join(tempfile.gettempdir(), f"{job_name}_preview.png")
+            image.save(temp_path, 'PNG')
+            
+            image_url = f"/api/image/{os.path.basename(temp_path)}"
+            
+            return web.json_response({
+                'success': True,
+                'job_name': job_name,
+                'font_type': font_type,
+                'font_size': font_size,
+                'image_url': image_url,
+                'preview_only': True
+            })
+            
+        except Exception as e:
+            logger.error(f"Error previewing todo list: {e}")
             return web.json_response({'error': str(e)}, status=500)
     
     async def configure_printer(self, request: web_request.Request) -> web.Response:
@@ -407,6 +581,10 @@ class StickyPrintServer:
                 button:hover {{ background: #0056b3; }}
                 button:disabled {{ background: #ccc; cursor: not-allowed; }}
                 
+                .button-group {{ display: flex; gap: 10px; }}
+                .button-group button[type="button"] {{ background: #6c757d; }}
+                .button-group button[type="button"]:hover {{ background: #545b62; }}
+                
                 .api-section {{ background: #f8f9fa; padding: 15px; border-radius: 5px; margin: 20px 0; }}
                 .api-section code {{ background: #e9ecef; padding: 2px 5px; border-radius: 3px; }}
                 
@@ -478,7 +656,19 @@ class StickyPrintServer:
                                 <option value="handwriting">Handwriting</option>
                             </select>
                         </div>
-                        <button type="submit">Print Text</button>
+                        <div class="form-group">
+                            <label for="text-font-size">Font Size:</label>
+                            <select id="text-font-size">
+                                <option value="small">Small (36px)</option>
+                                <option value="normal" selected>Normal (48px)</option>
+                                <option value="large">Large (64px)</option>
+                                <option value="xlarge">X-Large (80px)</option>
+                            </select>
+                        </div>
+                        <div class="button-group">
+                            <button type="submit">Print Text</button>
+                            <button type="button" onclick="previewText(event)">Preview Only</button>
+                        </div>
                         <div id="text-result" class="result" style="display:none;"></div>
                     </form>
                 </div>
@@ -490,7 +680,10 @@ class StickyPrintServer:
                             <label for="qr-data">QR Code Data:</label>
                             <input id="qr-data" type="text" placeholder="URL, text, or data..." required>
                         </div>
-                        <button type="submit">Print QR Code</button>
+                        <div class="button-group">
+                            <button type="submit">Print QR Code</button>
+                            <button type="button" onclick="previewQR(event)">Preview Only</button>
+                        </div>
                         <div id="qr-result" class="result" style="display:none;"></div>
                     </form>
                 </div>
@@ -510,7 +703,19 @@ class StickyPrintServer:
                                 <option value="handwriting">Handwriting</option>
                             </select>
                         </div>
-                        <button type="submit">Print Today's Events</button>
+                        <div class="form-group">
+                            <label for="calendar-font-size">Font Size:</label>
+                            <select id="calendar-font-size">
+                                <option value="small">Small (36px)</option>
+                                <option value="normal" selected>Normal (48px)</option>
+                                <option value="large">Large (64px)</option>
+                                <option value="xlarge">X-Large (80px)</option>
+                            </select>
+                        </div>
+                        <div class="button-group">
+                            <button type="submit">Print Today's Events</button>
+                            <button type="button" onclick="previewCalendar(event)">Preview Only</button>
+                        </div>
                         <div id="calendar-result" class="result" style="display:none;"></div>
                     </form>
                 </div>
@@ -530,7 +735,19 @@ class StickyPrintServer:
                                 <option value="handwriting">Handwriting</option>
                             </select>
                         </div>
-                        <button type="submit">Print Todo List</button>
+                        <div class="form-group">
+                            <label for="todo-font-size">Font Size:</label>
+                            <select id="todo-font-size">
+                                <option value="small">Small (36px)</option>
+                                <option value="normal" selected>Normal (48px)</option>
+                                <option value="large">Large (64px)</option>
+                                <option value="xlarge">X-Large (80px)</option>
+                            </select>
+                        </div>
+                        <div class="button-group">
+                            <button type="submit">Print Todo List</button>
+                            <button type="button" onclick="previewTodo(event)">Preview Only</button>
+                        </div>
                         <div id="todo-result" class="result" style="display:none;"></div>
                     </form>
                 </div>
@@ -563,26 +780,29 @@ class StickyPrintServer:
             </div>
 
             <script>
-            function showResult(elementId, success, message, imageUrl = null) {{
+            function showResult(elementId, success, message, imageUrl = null, previewOnly = false) {{
                 const result = document.getElementById(elementId);
-                result.className = `result ${{success ? 'success' : 'error'}}`;
+                result.className = 'result ' + (success ? 'success' : 'error');
                 
                 // Clear previous content
                 result.innerHTML = '';
                 
-                // Add message
+                // Add message with preview indicator
                 const messageElement = document.createElement('div');
-                messageElement.textContent = message;
+                if (previewOnly && success) {{
+                    messageElement.textContent = '📖 ' + message;
+                }} else {{
+                    messageElement.textContent = message;
+                }}
                 result.appendChild(messageElement);
                 
                 // Add image preview if available
                 if (success && imageUrl) {{
                     const imagePreview = document.createElement('div');
                     imagePreview.className = 'image-preview';
-                    imagePreview.innerHTML = `
-                        <p>Generated Image Preview:</p>
-                        <img src="${{imageUrl}}" alt="Generated sticky note preview" />
-                    `;
+                    imagePreview.innerHTML = 
+                        '<p>Generated Image Preview:</p>' +
+                        '<img src="' + imageUrl + '" alt="Generated sticky note preview" />';
                     result.appendChild(imagePreview);
                 }}
                 
@@ -594,12 +814,13 @@ class StickyPrintServer:
                 event.preventDefault();
                 const text = document.getElementById('text-content').value;
                 const font = document.getElementById('text-font').value;
+                const font_size = document.getElementById('text-font-size').value;
                 
                 try {{
                     const response = await fetch('/api/print/text', {{
                         method: 'POST',
                         headers: {{'Content-Type': 'application/json'}},
-                        body: JSON.stringify({{text, font, job_name: 'Web-Text'}})
+                        body: JSON.stringify({{text, font, font_size, job_name: 'Web-Text'}})
                     }});
                     const result = await response.json();
                     showResult(
@@ -639,12 +860,13 @@ class StickyPrintServer:
                 event.preventDefault();
                 const calendar_entity = document.getElementById('calendar-entity').value || null;
                 const font = document.getElementById('calendar-font').value;
+                const font_size = document.getElementById('calendar-font-size').value;
                 
                 try {{
                     const response = await fetch('/api/print/calendar', {{
                         method: 'POST',
                         headers: {{'Content-Type': 'application/json'}},
-                        body: JSON.stringify({{calendar_entity, font, job_name: 'Web-Calendar'}})
+                        body: JSON.stringify({{calendar_entity, font, font_size, job_name: 'Web-Calendar'}})
                     }});
                     const result = await response.json();
                     showResult(
@@ -662,12 +884,13 @@ class StickyPrintServer:
                 event.preventDefault();
                 const todo_entity = document.getElementById('todo-entity').value;
                 const font = document.getElementById('todo-font').value;
+                const font_size = document.getElementById('todo-font-size').value;
                 
                 try {{
                     const response = await fetch('/api/print/todo', {{
                         method: 'POST',
                         headers: {{'Content-Type': 'application/json'}},
-                        body: JSON.stringify({{todo_entity, font, job_name: 'Web-Todo'}})
+                        body: JSON.stringify({{todo_entity, font, font_size, job_name: 'Web-Todo'}})
                     }});
                     const result = await response.json();
                     showResult(
@@ -736,7 +959,7 @@ class StickyPrintServer:
                     
                     // Update the status container class
                     const statusContainer = printerStatusSpan.closest('.status');
-                    statusContainer.className = `status ${{statusClass}}`;
+                    statusContainer.className = 'status ' + statusClass;
                     
                 }} catch (error) {{
                     console.error('Failed to refresh status:', error);
@@ -775,6 +998,109 @@ class StickyPrintServer:
                     
                 }} catch (error) {{
                     showResult('printer-setup-result', false, 'Error: ' + error.message);
+                }}
+            }}
+
+            // Preview functions (generate images without printing)
+            async function previewText(event) {{
+                event.preventDefault();
+                const text = document.getElementById('text-content').value;
+                const font = document.getElementById('text-font').value;
+                const font_size = document.getElementById('text-font-size').value;
+                
+                try {{
+                    const response = await fetch('/api/preview/text', {{
+                        method: 'POST',
+                        headers: {{'Content-Type': 'application/json'}},
+                        body: JSON.stringify({{text, font, font_size, job_name: 'Text-Preview'}})
+                    }});
+                    const result = await response.json();
+                    showResult(
+                        'text-result', 
+                        result.success, 
+                        result.success ? 'Preview generated successfully!' : 'Failed to generate preview',
+                        result.image_url,
+                        true // preview only
+                    );
+                }} catch (error) {{
+                    console.error('Error previewing text:', error);
+                    showResult('text-result', false, 'Error: ' + error.message);
+                }}
+            }}
+
+            async function previewQR(event) {{
+                event.preventDefault();
+                const data = document.getElementById('qr-data').value;
+                
+                try {{
+                    const response = await fetch('/api/preview/qr', {{
+                        method: 'POST',
+                        headers: {{'Content-Type': 'application/json'}},
+                        body: JSON.stringify({{data, job_name: 'QR-Preview'}})
+                    }});
+                    const result = await response.json();
+                    showResult(
+                        'qr-result', 
+                        result.success, 
+                        result.success ? 'QR preview generated successfully!' : 'Failed to generate QR preview',
+                        result.image_url,
+                        true // preview only
+                    );
+                }} catch (error) {{
+                    console.error('Error previewing QR:', error);
+                    showResult('qr-result', false, 'Error: ' + error.message);
+                }}
+            }}
+
+            async function previewCalendar(event) {{
+                event.preventDefault();
+                const calendar_entity = document.getElementById('calendar-entity').value || null;
+                const font = document.getElementById('calendar-font').value;
+                const font_size = document.getElementById('calendar-font-size').value;
+                
+                try {{
+                    const response = await fetch('/api/preview/calendar', {{
+                        method: 'POST',
+                        headers: {{'Content-Type': 'application/json'}},
+                        body: JSON.stringify({{calendar_entity, font, font_size, job_name: 'Calendar-Preview'}})
+                    }});
+                    const result = await response.json();
+                    showResult(
+                        'calendar-result', 
+                        result.success, 
+                        result.success ? 'Calendar preview generated successfully!' : 'Failed to generate calendar preview',
+                        result.image_url,
+                        true // preview only
+                    );
+                }} catch (error) {{
+                    console.error('Error previewing calendar:', error);
+                    showResult('calendar-result', false, 'Error: ' + error.message);
+                }}
+            }}
+
+            async function previewTodo(event) {{
+                event.preventDefault();
+                const todo_entity = document.getElementById('todo-entity').value;
+                const font = document.getElementById('todo-font').value;
+                const font_size = document.getElementById('todo-font-size').value;
+                
+                try {{
+                    const response = await fetch('/api/preview/todo', {{
+                        method: 'POST',
+                        headers: {{'Content-Type': 'application/json'}},
+                        body: JSON.stringify({{todo_entity, font, font_size, job_name: 'Todo-Preview'}})
+                    }});
+                    const result = await response.json();
+                    showResult(
+                        'todo-result', 
+                        result.success, 
+                        result.success ? 'Todo preview generated successfully!' : 'Failed to generate todo preview',
+                        result.image_url,
+                        true // preview only
+                    );
+                }} catch (error) {{
+                    console.error('Error previewing todo:', error);
+                    showResult('todo-result', false, 'Error: ' + error.message);
                 }}
             }}
 

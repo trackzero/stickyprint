@@ -14,6 +14,7 @@ class StickyNoteRenderer:
     
     # Image specifications for sticky note printer
     WIDTH = 576
+    MIN_HEIGHT = 400  # Minimum 2 inches at ~200 DPI
     BACKGROUND_COLOR = 255  # White
     TEXT_COLOR = 0  # Black
     
@@ -22,10 +23,21 @@ class StickyNoteRenderer:
     FONT_CONSOLE = "console" 
     FONT_HANDWRITING = "handwriting"
     
-    def __init__(self, font_size: int = 12, margin: int = 10, line_spacing: float = 1.2):
+    # Font size mappings
+    FONT_SIZES = {
+        'small': 36,
+        'normal': 48,
+        'large': 64,
+        'xlarge': 80
+    }
+    
+    def __init__(self, font_size: int = 48, margin: int = 20, line_spacing: float = 1.3, font_sizes: dict = None):
         self.font_size = font_size
         self.margin = margin
         self.line_spacing = line_spacing
+        # Allow custom font sizes to be passed in
+        if font_sizes:
+            self.FONT_SIZES.update(font_sizes)
         self.fonts = self._load_fonts()
         
     def _load_fonts(self) -> Dict[str, ImageFont.FreeTypeFont]:
@@ -52,13 +64,93 @@ class StickyNoteRenderer:
         
         return fonts
     
+    def get_font_size(self, size_name: str) -> int:
+        """Get font size in pixels from size name"""
+        return self.FONT_SIZES.get(size_name, self.font_size)
+    
+    def set_font_size(self, font_size: int):
+        """Update font size and reload fonts"""
+        self.font_size = font_size
+        self.fonts = self._load_fonts()
+    
     def render_text(self, text: str, font_type: str = FONT_SANS, 
-                   max_width: Optional[int] = None) -> Image.Image:
+                   max_width: Optional[int] = None, font_size: Optional[Union[str, int]] = None) -> Image.Image:
         """Render plain text to an image"""
         if max_width is None:
             max_width = self.WIDTH - (2 * self.margin)
         
-        font = self.fonts.get(font_type, self.fonts[self.FONT_SANS])
+        # Handle font size parameter
+        if font_size is not None:
+            if isinstance(font_size, str):
+                actual_font_size = self.get_font_size(font_size)
+            else:
+                actual_font_size = font_size
+            
+            # Create font with specified size
+            font_paths = {
+                self.FONT_SANS: "/app/fonts/sans-serif.ttf",
+                self.FONT_CONSOLE: "/app/fonts/console.ttf", 
+                self.FONT_HANDWRITING: "/app/fonts/handwriting.ttf"
+            }
+            
+            font_path = font_paths.get(font_type)
+            font = None
+            
+            # Try to load the specific font file first
+            if font_path and os.path.exists(font_path):
+                try:
+                    font = ImageFont.truetype(font_path, actual_font_size)
+                except Exception as e:
+                    logger.debug(f"Failed to load font {font_path}: {e}")
+                    
+            # If specific font failed, try system fonts
+            if font is None:
+                try:
+                    # Try to load a default TrueType font with the specified size
+                    font = ImageFont.load_default()
+                    # For newer PIL versions, try to get a scalable font
+                    try:
+                        # Try system fonts based on font type
+                        if font_type == self.FONT_CONSOLE:
+                            system_fonts = [
+                                "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
+                                "/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf",
+                                "/System/Library/Fonts/Monaco.ttf",
+                                "/Windows/Fonts/consola.ttf"
+                            ]
+                        elif font_type == self.FONT_HANDWRITING:
+                            system_fonts = [
+                                "/usr/share/fonts/truetype/dustin/Domestic_Manners.ttf",
+                                "/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf",
+                                "/usr/share/fonts/truetype/liberation/LiberationSerif-Regular.ttf",
+                                "/System/Library/Fonts/Georgia.ttf",
+                                "/Windows/Fonts/georgia.ttf"
+                            ]
+                        else:  # FONT_SANS or default
+                            system_fonts = [
+                                "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+                                "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+                                "/System/Library/Fonts/Helvetica.ttc",
+                                "/Windows/Fonts/arial.ttf"
+                            ]
+                        for sys_font in system_fonts:
+                            if os.path.exists(sys_font):
+                                font = ImageFont.truetype(sys_font, actual_font_size)
+                                logger.debug(f"Using system font: {sys_font} at {actual_font_size}px")
+                                break
+                    except:
+                        pass
+                        
+                    # If we still have the default font, it won't scale, so we need a workaround
+                    if hasattr(font, 'size') and font.size != actual_font_size:
+                        # Default font doesn't scale - let's try to create a bitmap font workaround
+                        logger.warning(f"Using fallback default font - size may not be {actual_font_size}px")
+                        
+                except Exception as e:
+                    logger.error(f"Failed to load any font: {e}")
+                    font = ImageFont.load_default()
+        else:
+            font = self.fonts.get(font_type, self.fonts[self.FONT_SANS])
         
         # Word wrap the text
         wrapped_lines = self._wrap_text(text, font, max_width)
@@ -72,13 +164,24 @@ class StickyNoteRenderer:
         image = Image.new('L', (self.WIDTH, image_height), self.BACKGROUND_COLOR)
         draw = ImageDraw.Draw(image)
         
-        # Draw text lines
+        # Draw text lines (center aligned)
         y_offset = self.margin
         for line in wrapped_lines:
-            draw.text((self.margin, y_offset), line, fill=self.TEXT_COLOR, font=font)
+            # Get line width for centering
+            try:
+                # For newer PIL versions
+                bbox = font.getbbox(line)
+                line_width = bbox[2] - bbox[0]
+            except AttributeError:
+                # For older PIL versions
+                line_width = font.getsize(line)[0]
+            
+            # Center the line horizontally
+            x_offset = (self.WIDTH - line_width) // 2
+            draw.text((x_offset, y_offset), line, fill=self.TEXT_COLOR, font=font)
             y_offset += line_height
         
-        return self._prepare_for_printer(image)
+        return self._prepare_for_printer(self._ensure_minimum_height(image))
     
     def render_qr_code(self, data: str, size_factor: int = 8) -> Image.Image:
         """Render a QR code"""
@@ -110,7 +213,7 @@ class StickyNoteRenderer:
             x_offset = (self.WIDTH - qr_img.width) // 2
             image.paste(qr_img, (x_offset, self.margin))
             
-            return self._prepare_for_printer(image)
+            return self._prepare_for_printer(self._ensure_minimum_height(image))
             
         except Exception as e:
             logger.error(f"Error generating QR code: {e}")
@@ -118,10 +221,10 @@ class StickyNoteRenderer:
             return self.render_text(f"QR: {data[:50]}...")
     
     def render_calendar_events(self, events: List[Dict[str, Any]], 
-                             font_type: str = FONT_SANS) -> Image.Image:
+                             font_type: str = FONT_SANS, font_size: Optional[Union[str, int]] = None) -> Image.Image:
         """Render today's calendar events"""
         if not events:
-            return self.render_text("No events today", font_type)
+            return self.render_text("No events today", font_type, font_size=font_size)
         
         # Format events
         content_lines = ["Today's Events:", ""]
@@ -144,13 +247,13 @@ class StickyNoteRenderer:
             content_lines.append(line)
         
         content = "\n".join(content_lines)
-        return self.render_text(content, font_type)
+        return self.render_text(content, font_type, font_size=font_size)
     
     def render_todo_list(self, todos: List[Dict[str, Any]], 
-                        font_type: str = FONT_CONSOLE) -> Image.Image:
+                        font_type: str = FONT_CONSOLE, font_size: Optional[Union[str, int]] = None) -> Image.Image:
         """Render a todo list with checkboxes"""
         if not todos:
-            return self.render_text("No todos", font_type)
+            return self.render_text("No todos", font_type, font_size=font_size)
         
         content_lines = ["Todo List:", ""]
         
@@ -161,7 +264,7 @@ class StickyNoteRenderer:
             content_lines.append(f"{checkbox} {summary}")
         
         content = "\n".join(content_lines)
-        return self.render_text(content, font_type)
+        return self.render_text(content, font_type, font_size=font_size)
     
     def _wrap_text(self, text: str, font: ImageFont.FreeTypeFont, 
                    max_width: int) -> List[str]:
@@ -189,6 +292,20 @@ class StickyNoteRenderer:
             lines.append(current_line)
         
         return lines if lines else [""]
+    
+    def _ensure_minimum_height(self, image: Image.Image) -> Image.Image:
+        """Ensure image meets minimum height requirement (2 inches)"""
+        if image.height >= self.MIN_HEIGHT:
+            return image
+        
+        # Create new image with minimum height
+        padded_image = Image.new('L', (self.WIDTH, self.MIN_HEIGHT), self.BACKGROUND_COLOR)
+        
+        # Center the original image vertically
+        y_offset = (self.MIN_HEIGHT - image.height) // 2
+        padded_image.paste(image, (0, y_offset))
+        
+        return padded_image
     
     def _prepare_for_printer(self, image: Image.Image) -> Image.Image:
         """Prepare image for sticky note printer (monochrome, flipped)"""

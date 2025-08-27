@@ -112,9 +112,9 @@ class UniversalConfig:
         return {
             'auto_discover': options.get('printer', {}).get('auto_discover', True),
             'manual_ip': options.get('printer', {}).get('manual_ip', ''),
-            'font_size': options.get('fonts', {}).get('default_size', 12),
-            'margin': options.get('fonts', {}).get('margin', 10),
-            'line_spacing': options.get('fonts', {}).get('line_spacing', 1.2),
+            'font_size': options.get('fonts', {}).get('default_size', 48),
+            'margin': options.get('fonts', {}).get('margin', 20),
+            'line_spacing': options.get('fonts', {}).get('line_spacing', 1.3),
             'calendar_entity': options.get('calendar', {}).get('default_entity', 'calendar.family'),
             'discovery_timeout': options.get('discovery', {}).get('timeout', 30),
             'ha_url': 'http://supervisor/core',
@@ -130,7 +130,7 @@ class UniversalConfig:
             return {
                 'auto_discover': config.get('printer', {}).get('auto_discover', True),
                 'manual_ip': config.get('printer', {}).get('manual_ip', ''),
-                'font_size': config.get('fonts', {}).get('default_size', 12),
+                'font_size': config.get('fonts', {}).get('default_size', 48),
                 'margin': config.get('fonts', {}).get('margin', 10),
                 'line_spacing': config.get('fonts', {}).get('line_spacing', 1.2),
                 'calendar_entity': config.get('calendar', {}).get('default_entity', 'calendar.family'),
@@ -144,7 +144,7 @@ class UniversalConfig:
             return {
                 'auto_discover': config.get('auto_discover', True),
                 'manual_ip': config.get('manual_ip', ''),
-                'font_size': config.get('font_size', 12),
+                'font_size': config.get('font_size', 48),
                 'margin': config.get('margin', 10),
                 'line_spacing': config.get('line_spacing', 1.2),
                 'calendar_entity': config.get('calendar_entity', 'calendar.family'),
@@ -161,7 +161,7 @@ class UniversalConfig:
             return {
                 'auto_discover': os.getenv('PRINTER_AUTO_DISCOVER', 'true').lower() == 'true',
                 'manual_ip': os.getenv('PRINTER_MANUAL_IP', ''),
-                'font_size': int(os.getenv('FONT_SIZE', '12')),
+                'font_size': int(os.getenv('FONT_SIZE', '48')),
                 'margin': int(os.getenv('FONT_MARGIN', '10')),
                 'line_spacing': float(os.getenv('FONT_LINE_SPACING', '1.2')),
                 'calendar_entity': os.getenv('CALENDAR_ENTITY', 'calendar.family'),
@@ -175,7 +175,7 @@ class UniversalConfig:
             return {
                 'auto_discover': os.getenv('STICKYPRINT_AUTO_DISCOVER', 'true').lower() == 'true',
                 'manual_ip': os.getenv('STICKYPRINT_MANUAL_IP', ''),
-                'font_size': int(os.getenv('STICKYPRINT_FONT_SIZE', '12')),
+                'font_size': int(os.getenv('STICKYPRINT_FONT_SIZE', '48')),
                 'margin': int(os.getenv('STICKYPRINT_MARGIN', '10')),
                 'line_spacing': float(os.getenv('STICKYPRINT_LINE_SPACING', '1.2')),
                 'calendar_entity': os.getenv('STICKYPRINT_CALENDAR_ENTITY', 'calendar.family'),

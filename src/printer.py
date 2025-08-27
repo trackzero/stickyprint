@@ -80,6 +80,17 @@ class StickyNotePrinter:
             # Test network connectivity first
             await self._debug_network_connectivity()
             
+            # Find the print-job.test file
+            test_file = None
+            for path in ['print-job.test', '/app/print-job.test']:
+                if os.path.exists(path):
+                    test_file = path
+                    break
+            
+            if not test_file:
+                logger.error("print-job.test file not found")
+                return False
+            
             # Create ipptool command matching the working format
             cmd = [
                 'ipptool',
@@ -88,7 +99,7 @@ class StickyNotePrinter:
                 '-f', bmp_path, # File to print
                 self.printer.uri,
                 '-d', 'fileType=image/reverse-encoding-bmp',  # File type
-                '/app/print-job.test'  # IPP test file with absolute path
+                test_file  # IPP test file
             ]
             
             logger.info(f"Printing to {self.printer.uri}: {job_name}")

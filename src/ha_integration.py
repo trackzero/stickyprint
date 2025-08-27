@@ -94,11 +94,20 @@ class StickyPrintService:
             token=config.get('ha_token', '')
         )
         
-        # Initialize components
+        # Initialize components  
+        # Extract font sizes from config, with fallbacks to our new defaults
+        font_sizes = {
+            'small': 36,
+            'normal': 48, 
+            'large': 64,
+            'xlarge': 80
+        }
+        
         self.renderer = StickyNoteRenderer(
-            font_size=config.get('font_size', 12),
-            margin=config.get('margin', 10),
-            line_spacing=config.get('line_spacing', 1.2)
+            font_size=config.get('font_size', 48),
+            margin=config.get('margin', 20),
+            line_spacing=config.get('line_spacing', 1.3),
+            font_sizes=font_sizes
         )
         
         self.discovery = PrinterDiscovery(
@@ -155,11 +164,11 @@ class StickyPrintService:
             logger.error(f"Error setting up printer: {e}")
     
     async def print_text(self, text: str, font_type: str = "sans-serif", 
-                        job_name: str = "Text") -> bool:
+                        job_name: str = "Text", font_size: str = None) -> bool:
         """Print plain text"""
         try:
             logger.info(f"Printing text: {job_name}")
-            image = self.renderer.render_text(text, font_type)
+            image = self.renderer.render_text(text, font_type, font_size=font_size)
             return await self.printer.print_image(image, job_name)
             
         except Exception as e:
@@ -179,14 +188,14 @@ class StickyPrintService:
     
     async def print_calendar_today(self, calendar_entity: Optional[str] = None, 
                                   font_type: str = "sans-serif",
-                                  job_name: str = "Calendar") -> bool:
+                                  job_name: str = "Calendar", font_size: str = None) -> bool:
         """Print today's calendar events"""
         try:
             entity_id = calendar_entity or self.default_calendar
             logger.info(f"Printing calendar events from {entity_id}")
             
             events = await self.ha_api.get_calendar_events(entity_id)
-            image = self.renderer.render_calendar_events(events, font_type)
+            image = self.renderer.render_calendar_events(events, font_type, font_size=font_size)
             return await self.printer.print_image(image, job_name)
             
         except Exception as e:
@@ -194,13 +203,13 @@ class StickyPrintService:
             return False
     
     async def print_todo_list(self, todo_entity: str, font_type: str = "console",
-                             job_name: str = "TodoList") -> bool:
+                             job_name: str = "TodoList", font_size: str = None) -> bool:
         """Print todo list"""
         try:
             logger.info(f"Printing todo list from {todo_entity}")
             
             todos = await self.ha_api.get_todo_items(todo_entity)
-            image = self.renderer.render_todo_list(todos, font_type)
+            image = self.renderer.render_todo_list(todos, font_type, font_size=font_size)
             return await self.printer.print_image(image, job_name)
             
         except Exception as e:

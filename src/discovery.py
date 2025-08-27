@@ -2,6 +2,7 @@ import asyncio
 import subprocess
 import re
 import logging
+import os
 from typing import Optional, List, Dict
 from dataclasses import dataclass
 
@@ -110,12 +111,24 @@ class PrinterDiscovery:
     async def verify_printer(self, uri: str) -> bool:
         """Verify that a printer URI is accessible"""
         try:
+            # Find the get-printer-attributes.test file
+            # Check current directory first, then /app (for Docker compatibility)
+            test_file = None
+            for path in ['get-printer-attributes.test', '/app/get-printer-attributes.test']:
+                if os.path.exists(path):
+                    test_file = path
+                    break
+            
+            if not test_file:
+                logger.warning("get-printer-attributes.test file not found")
+                return False
+            
             # Use ipptool to check printer status
             process = await asyncio.create_subprocess_exec(
                 'ipptool',
                 '-t',
                 uri,
-                '/app/get-printer-attributes.test',
+                test_file,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
