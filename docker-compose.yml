@@ -26,20 +26,8 @@ services:
       - STICKYPRINT_PORT=8099
     networks:
       - stickyprint-network
-    # Enable host network for printer discovery
-    # Uncomment the following line if printer discovery doesn't work
-    # network_mode: host
 
-networks:
-  stickyprint-network:
-    driver: bridge
-
-# Alternative standalone configuration with host networking
-# This version is better for printer auto-discovery
----
-version: '3.8'
-
-services:
+  # Alternative service with host networking for better printer discovery
   stickyprint-host:
     build: .
     container_name: stickyprint-host
@@ -50,3 +38,9 @@ services:
       - ./logs:/app/logs
     environment:
       - STICKYPRINT_PORT=8099
+    profiles:
+      - host-network
+
+networks:
+  stickyprint-network:
+    driver: bridge
