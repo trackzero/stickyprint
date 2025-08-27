@@ -52,22 +52,20 @@ A versatile application that enables printing notifications, QR codes, calendar 
 ### Option 2: Standalone Python Installation
 
 ```bash
-# Install via pip
-pip install stickyprint
+# Clone repository
+git clone https://github.com/your-username/stickyprint
+cd stickyprint
 
-# Create example configuration
-stickyprint-config config.json
+# Create virtual environment and install dependencies
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
 
-# Edit the configuration file
-nano config.json
+# Start the server (will auto-create config.json)
+./run_local.sh
 
-# Run the server
-stickyprint
-
-# Or use CLI directly
-stickyprint-cli text "Hello World!"
-stickyprint-cli qr "https://example.com"
-stickyprint-cli discover
+# Or use CLI directly (if available)
+cd src && python -c "from cli import main; main()" text "Hello World!"
 ```
 
 ### Option 3: Docker Standalone
@@ -319,29 +317,32 @@ data:
 
 #### Basic Commands
 ```bash
-# Print text
-stickyprint-cli text "Hello World!" --font sans-serif
+# Navigate to source directory first
+cd src && source ../venv/bin/activate
 
-# Print QR code
-stickyprint-cli qr "https://example.com"
+# Print text
+python cli.py text "Hello World!" --font sans-serif
+
+# Print QR code  
+python cli.py qr "https://example.com"
 
 # Print calendar events
-stickyprint-cli calendar --entity calendar.personal
+python cli.py calendar --entity calendar.personal
 
 # Print todo list
-stickyprint-cli todo todo.shopping --font console
+python cli.py todo todo.shopping --font console
 
 # Discover printers
-stickyprint-cli discover
+python cli.py discover
 
 # Check status
-stickyprint-cli status
+python cli.py status
 
 # Use custom config file
-stickyprint-cli --config /path/to/config.json text "Hello"
+python cli.py --config ../config.json text "Hello"
 
 # Verbose logging
-stickyprint-cli -v discover
+python cli.py -v discover
 ```
 
 ### REST API Usage
@@ -656,11 +657,18 @@ response = requests.post('http://localhost:8099/api/print/qr', json={
 To use multiple printers, run multiple instances with different configurations:
 
 ```bash
-# Printer 1 on port 8099
-STICKYPRINT_PORT=8099 STICKYPRINT_MANUAL_IP=192.168.1.100 stickyprint &
+# Create separate config files
+cp config.json config-printer1.json
+cp config.json config-printer2.json
 
-# Printer 2 on port 8100  
-STICKYPRINT_PORT=8100 STICKYPRINT_MANUAL_IP=192.168.1.101 stickyprint &
+# Edit each config with different printer IPs and ports
+# config-printer1.json: port 8099, IP 192.168.1.100
+# config-printer2.json: port 8100, IP 192.168.1.101
+
+# Run separate instances
+cd src && source ../venv/bin/activate
+python main.py --config ../config-printer1.json --port 8099 &
+python main.py --config ../config-printer2.json --port 8100 &
 ```
 
 ## 📋 Requirements
