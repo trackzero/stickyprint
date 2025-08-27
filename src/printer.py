@@ -4,7 +4,7 @@ import os
 import logging
 from typing import Optional
 from PIL import Image
-from .discovery import IPPPrinter
+from discovery import IPPPrinter
 
 logger = logging.getLogger(__name__)
 

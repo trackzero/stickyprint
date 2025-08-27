@@ -3,6 +3,9 @@ import subprocess
 import re
 import logging
 import os
+import socket
+import ipaddress
+import netifaces
 from typing import Optional, List, Dict
 from dataclasses import dataclass
 
@@ -29,6 +32,18 @@ class PrinterDiscovery:
         """Discover IPP printers on the local network"""
         logger.info("Starting IPP printer discovery...")
         
+        # First try ippfind (mDNS/Bonjour discovery)
+        printers = await self._discover_with_ippfind()
+        
+        if not printers:
+            logger.info("ippfind discovery failed, falling back to network scanning...")
+            printers = await self._discover_with_network_scan()
+        
+        logger.info(f"Discovered {len(printers)} IPP printers")
+        return printers
+    
+    async def _discover_with_ippfind(self) -> List[IPPPrinter]:
+        """Try to discover printers using ippfind (mDNS/Bonjour)"""
         try:
             # Run ippfind command to discover printers
             process = await asyncio.create_subprocess_exec(
@@ -50,20 +65,130 @@ class PrinterDiscovery:
                 return []
             
             if process.returncode != 0:
-                logger.error(f"ippfind failed: {stderr.decode()}")
+                logger.warning(f"ippfind failed: {stderr.decode()}")
                 return []
             
             # Parse the output
             printers = self._parse_ippfind_output(stdout.decode())
-            logger.info(f"Discovered {len(printers)} IPP printers")
+            logger.info(f"ippfind discovered {len(printers)} IPP printers")
             return printers
             
         except FileNotFoundError:
-            logger.error("ippfind command not found. Make sure CUPS is installed.")
+            logger.warning("ippfind command not found. Make sure CUPS is installed.")
             return []
         except Exception as e:
-            logger.error(f"Error during printer discovery: {e}")
+            logger.warning(f"Error during ippfind discovery: {e}")
             return []
+    
+    async def _discover_with_network_scan(self) -> List[IPPPrinter]:
+        """Discover printers by scanning the local network for IPP services"""
+        printers = []
+        
+        try:
+            # Get local network ranges
+            networks = self._get_local_networks()
+            logger.info(f"Scanning networks: {networks}")
+            
+            # Create semaphore to limit concurrent connections
+            semaphore = asyncio.Semaphore(100)
+            
+            # Scan all networks concurrently
+            tasks = []
+            for network in networks:
+                for ip in network.hosts():
+                    task = self._check_ipp_service(str(ip), semaphore)
+                    tasks.append(task)
+            
+            # Wait for all scans to complete
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            
+            # Collect successful results
+            for result in results:
+                if isinstance(result, IPPPrinter):
+                    printers.append(result)
+                elif isinstance(result, Exception):
+                    logger.debug(f"Scan error: {result}")
+            
+            logger.info(f"Network scan discovered {len(printers)} IPP printers")
+            return printers
+            
+        except Exception as e:
+            logger.error(f"Error during network scan discovery: {e}")
+            return []
+    
+    def _get_local_networks(self) -> List[ipaddress.IPv4Network]:
+        """Get local network ranges to scan"""
+        networks = []
+        
+        try:
+            # Get all network interfaces
+            interfaces = netifaces.interfaces()
+            
+            for interface in interfaces:
+                # Skip loopback
+                if interface == 'lo':
+                    continue
+                
+                addrs = netifaces.ifaddresses(interface)
+                
+                # Check IPv4 addresses
+                if netifaces.AF_INET in addrs:
+                    for addr_info in addrs[netifaces.AF_INET]:
+                        ip = addr_info.get('addr')
+                        netmask = addr_info.get('netmask')
+                        
+                        if ip and netmask and not ip.startswith('127.'):
+                            try:
+                                # Create network object
+                                network = ipaddress.IPv4Network(f"{ip}/{netmask}", strict=False)
+                                networks.append(network)
+                                logger.debug(f"Found network: {network}")
+                            except Exception as e:
+                                logger.debug(f"Error processing {ip}/{netmask}: {e}")
+        
+        except Exception as e:
+            logger.warning(f"Error getting local networks: {e}")
+            # Fallback to common private network ranges (smaller subnets for faster scanning)
+            try:
+                networks = [
+                    ipaddress.IPv4Network('192.168.1.0/24'),
+                    ipaddress.IPv4Network('192.168.0.0/24'),
+                ]
+            except:
+                pass
+        
+        return networks
+    
+    async def _check_ipp_service(self, ip: str, semaphore: asyncio.Semaphore) -> Optional[IPPPrinter]:
+        """Check if a specific IP has an IPP service running on port 631"""
+        async with semaphore:
+            try:
+                # Try to connect to IPP port (631)
+                reader, writer = await asyncio.wait_for(
+                    asyncio.open_connection(ip, 631),
+                    timeout=1.0
+                )
+                
+                writer.close()
+                await writer.wait_closed()
+                
+                # Connection successful, create printer object
+                printer = IPPPrinter(
+                    uri=f"ipp://{ip}:631/ipp/print",
+                    hostname=ip,
+                    port=631,
+                    path="/ipp/print"
+                )
+                
+                logger.debug(f"Found IPP service at {ip}")
+                return printer
+                
+            except (asyncio.TimeoutError, ConnectionRefusedError, OSError):
+                # No service or connection failed
+                return None
+            except Exception as e:
+                logger.debug(f"Error checking {ip}: {e}")
+                return None
     
     def _parse_ippfind_output(self, output: str) -> List[IPPPrinter]:
         """Parse ippfind output to extract printer information"""

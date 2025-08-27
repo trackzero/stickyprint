@@ -12,8 +12,8 @@ import logging
 from typing import Optional, Dict, Any
 from pathlib import Path
 
-from .config import UniversalConfig
-from .ha_integration import StickyPrintService
+from config import UniversalConfig
+from ha_integration import StickyPrintService
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')

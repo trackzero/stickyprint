@@ -5,9 +5,9 @@ from datetime import datetime, date
 from typing import Dict, Any, List, Optional
 import aiohttp
 import requests
-from .image_processor import StickyNoteRenderer
-from .printer import StickyNotePrinter
-from .discovery import PrinterDiscovery, IPPPrinter
+from image_processor import StickyNoteRenderer
+from printer import StickyNotePrinter
+from discovery import PrinterDiscovery, IPPPrinter
 
 logger = logging.getLogger(__name__)
 

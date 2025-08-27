@@ -6,8 +6,8 @@ from datetime import datetime
 from typing import Dict, Any, Optional
 from aiohttp import web, web_request
 from aiohttp.web import middleware
-from .ha_integration import StickyPrintService
-from .config import UniversalConfig
+from ha_integration import StickyPrintService
+from config import UniversalConfig
 
 # Set up logging
 logging.basicConfig(
@@ -329,13 +329,16 @@ class StickyPrintServer:
             # Generate image without printing
             image = self.service.renderer.render_text(text, font_type, font_size=font_size)
             
-            # Save image for preview
-            import tempfile
+            # Save image for preview in a standard location
             import os
-            temp_path = os.path.join(tempfile.gettempdir(), f"{job_name}_preview.png")
-            image.save(temp_path, 'PNG')
+            preview_filename = "preview_text.png"  # Standard name that gets overwritten
+            if not self.service.printer:
+                return web.json_response({'error': 'Printer service not available'}, status=500)
             
-            image_url = f"/api/image/{os.path.basename(temp_path)}"
+            preview_path = os.path.join(self.service.printer.temp_dir, preview_filename)
+            image.save(preview_path, 'PNG')
+            
+            image_url = f"/api/image/{preview_filename}"
             
             return web.json_response({
                 'success': True,
@@ -366,13 +369,16 @@ class StickyPrintServer:
             # Generate QR image without printing
             image = self.service.renderer.render_qr_code(qr_data)
             
-            # Save image for preview
-            import tempfile
+            # Save image for preview in a standard location
             import os
-            temp_path = os.path.join(tempfile.gettempdir(), f"{job_name}_preview.png")
-            image.save(temp_path, 'PNG')
+            preview_filename = "preview_qr.png"  # Standard name that gets overwritten
+            if not self.service.printer:
+                return web.json_response({'error': 'Printer service not available'}, status=500)
             
-            image_url = f"/api/image/{os.path.basename(temp_path)}"
+            preview_path = os.path.join(self.service.printer.temp_dir, preview_filename)
+            image.save(preview_path, 'PNG')
+            
+            image_url = f"/api/image/{preview_filename}"
             
             return web.json_response({
                 'success': True,
@@ -411,13 +417,16 @@ class StickyPrintServer:
                 events = await self.service.ha_api.get_calendar_events(calendar_entity)
                 image = self.service.renderer.render_calendar_events(events, font_type, font_size=font_size)
             
-            # Save image for preview
-            import tempfile
+            # Save image for preview in a standard location
             import os
-            temp_path = os.path.join(tempfile.gettempdir(), f"{job_name}_preview.png")
-            image.save(temp_path, 'PNG')
+            preview_filename = "preview_calendar.png"  # Standard name that gets overwritten
+            if not self.service.printer:
+                return web.json_response({'error': 'Printer service not available'}, status=500)
             
-            image_url = f"/api/image/{os.path.basename(temp_path)}"
+            preview_path = os.path.join(self.service.printer.temp_dir, preview_filename)
+            image.save(preview_path, 'PNG')
+            
+            image_url = f"/api/image/{preview_filename}"
             
             return web.json_response({
                 'success': True,
@@ -457,13 +466,16 @@ class StickyPrintServer:
                 todos = await self.service.ha_api.get_todo_items(todo_entity)
                 image = self.service.renderer.render_todo_list(todos, font_type, font_size=font_size)
             
-            # Save image for preview
-            import tempfile
+            # Save image for preview in a standard location
             import os
-            temp_path = os.path.join(tempfile.gettempdir(), f"{job_name}_preview.png")
-            image.save(temp_path, 'PNG')
+            preview_filename = "preview_todo.png"  # Standard name that gets overwritten
+            if not self.service.printer:
+                return web.json_response({'error': 'Printer service not available'}, status=500)
             
-            image_url = f"/api/image/{os.path.basename(temp_path)}"
+            preview_path = os.path.join(self.service.printer.temp_dir, preview_filename)
+            image.save(preview_path, 'PNG')
+            
+            image_url = f"/api/image/{preview_filename}"
             
             return web.json_response({
                 'success': True,
