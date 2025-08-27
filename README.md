@@ -4,7 +4,7 @@ A versatile application that enables printing notifications, QR codes, calendar 
 
 ## ✨ Features
 
-- **🔍 Auto-Discovery**: Automatically finds IPP printers on your network
+- **🔍 Smart Auto-Discovery**: Automatically finds IPP printers using mDNS/Bonjour with network scanning fallback
 - **⚙️ Manual Configuration**: Supports static IP configuration 
 - **📄 Multiple Content Types**:
   - Plain text notifications with customizable fonts
@@ -34,6 +34,20 @@ A versatile application that enables printing notifications, QR codes, calendar 
 3. Configure the add-on (see Configuration section below)
 
 4. Start the add-on
+
+5. **Enable the notification platform** in your `configuration.yaml`:
+   ```yaml
+   notify:
+     - name: stickyprint
+       platform: rest
+       resource: http://a0d7b954-stickyprint:8099/api/notify
+       method: POST_JSON
+       title_param_name: title
+       message_param_name: message
+       data_param_name: data
+   ```
+
+6. **Restart Home Assistant** to load the notification platform
 
 ### Option 2: Standalone Python Installation
 
@@ -75,17 +89,60 @@ docker build -t stickyprint .
 docker run -d -p 8099:8099 -v $(pwd)/config.json:/app/config.json stickyprint
 ```
 
-### Option 4: Development Installation
+### Option 4: Local Development
 
 ```bash
-# Clone and install in development mode
+# Clone repository and setup
 git clone https://github.com/your-username/stickyprint
 cd stickyprint
-pip install -e .
 
-# Run directly
-python -m src.main
+# Create virtual environment and install dependencies
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+
+# Start the server (will auto-create config.json)
+./run_local.sh
+
+# Or start manually with custom port
+cd src && source ../venv/bin/activate && python main.py --port 8088
 ```
+
+## ⚡ Quick Start Commands
+
+### Start/Stop the Application
+
+#### Local Development:
+```bash
+# Start server (recommended)
+./run_local.sh
+
+# Start with custom port
+cd src && source ../venv/bin/activate && python main.py --port 8088
+
+# Stop server
+Ctrl+C (or kill the process)
+```
+
+#### Docker:
+```bash
+# Start with Docker Compose
+docker-compose up -d
+
+# Stop with Docker Compose  
+docker-compose down
+
+# Start directly with Docker
+docker run -d -p 8099:8099 -v $(pwd)/config.json:/app/config.json stickyprint
+
+# Stop Docker container
+docker stop <container_id>
+```
+
+#### Home Assistant Add-on:
+- Start: Go to **Supervisor** → **Add-on Store** → **Sticky Note Printer** → **Start**
+- Stop: Go to **Supervisor** → **Add-on Store** → **Sticky Note Printer** → **Stop**
+- Logs: Click **Log** tab in the add-on interface
 
 ## ⚙️ Configuration
 
@@ -170,22 +227,55 @@ Visit `http://localhost:8099` (or your configured port) for an interactive web i
 - View service status
 - Access API documentation
 
-### Home Assistant Notification Platform
+## 🏠 Home Assistant Integration Guide
 
-Add to your `configuration.yaml`:
+### Setting Up the Notification Platform
 
+The sticky note printer integrates with Home Assistant as a notification platform, allowing you to use it in automations, scripts, and manual notifications.
+
+#### Step 1: Add Notification Platform
+
+Add the following to your Home Assistant `configuration.yaml`:
+
+**For Home Assistant Add-on:**
 ```yaml
 notify:
   - name: stickyprint
     platform: rest
-    resource: http://localhost:8099/api/notify
+    resource: http://a0d7b954-stickyprint:8099/api/notify
     method: POST_JSON
     title_param_name: title
     message_param_name: message
     data_param_name: data
 ```
 
-Then use in automations:
+**For Standalone Installation:**
+```yaml
+notify:
+  - name: stickyprint
+    platform: rest
+    resource: http://YOUR_SERVER_IP:8099/api/notify  # Replace with your server IP
+    method: POST_JSON
+    title_param_name: title
+    message_param_name: message
+    data_param_name: data
+```
+
+#### Step 2: Restart Home Assistant
+
+After adding the notification platform, restart Home Assistant to load the configuration.
+
+#### Step 3: Test the Integration
+
+Use Developer Tools → Services to test:
+```yaml
+service: notify.stickyprint
+data:
+  message: "Hello from Home Assistant!"
+  title: "Test Print"
+```
+
+### Usage in Automations and Scripts
 
 ```yaml
 # Basic text notification
@@ -355,11 +445,33 @@ services:
 
 ### Printer Not Found
 
-1. **Check Network**: Ensure the printer and system are on the same network
-2. **Manual IP**: If auto-discovery fails, configure the printer's IP manually
-3. **Printer Status**: Check if the printer is powered on and connected to WiFi
-4. **Port Access**: Ensure port 631 (IPP) is accessible on your printer
-5. **Host Network**: If using Docker, try `network_mode: host` for better discovery
+The application now includes **smart auto-discovery** with multiple fallback methods:
+
+1. **Auto-Discovery Process**: 
+   - First tries mDNS/Bonjour discovery (`ippfind`)
+   - Falls back to network scanning if mDNS fails
+   - Scans local network subnets for IPP services on port 631
+
+2. **If Auto-Discovery Still Fails**:
+   - **Check Network**: Ensure printer and system are on same network
+   - **Manual IP**: Configure the printer's IP manually in config
+   - **Printer Status**: Verify printer is powered on and connected to WiFi
+   - **Port Access**: Ensure port 631 (IPP) is accessible on printer
+   - **Firewall**: Check if firewall is blocking connections
+
+3. **Docker Specific**:
+   - Try `network_mode: host` for better network discovery
+   - Ensure Docker can access your local network
+
+4. **Force Manual Configuration**:
+   ```json
+   {
+     "printer": {
+       "auto_discover": false,
+       "manual_ip": "192.168.1.109"
+     }
+   }
+   ```
 
 ### Print Jobs Fail
 
@@ -412,9 +524,11 @@ The application automatically detects if it's running as a Home Assistant add-on
 
 ### Integration Examples
 
-#### Home Assistant Automation
+#### Home Assistant Automation Examples
+
 ```yaml
 automation:
+  # Morning calendar summary
   - alias: "Morning Calendar Print"
     trigger:
       platform: time
@@ -423,21 +537,100 @@ automation:
       service: notify.stickyprint
       data:
         message: ""
+        title: "Today's Schedule"
         data:
           type: "calendar"
+          entity: "calendar.family"
           font: "sans-serif"
+          font_size: "normal"
 
-  - alias: "QR Code for Guest WiFi"
+  # Guest WiFi QR code when doorbell rings
+  - alias: "Guest WiFi QR Print"
     trigger:
       platform: state
-      entity_id: binary_sensor.doorbell
+      entity_id: binary_sensor.front_doorbell
       to: "on"
     action:
       service: notify.stickyprint
       data:
         message: "WIFI:T:WPA;S:GuestNetwork;P:password123;;"
+        title: "Guest WiFi"
         data:
           type: "qr"
+
+  # Shopping list when leaving for grocery store
+  - alias: "Print Shopping List"
+    trigger:
+      platform: zone
+      entity_id: person.john
+      zone: zone.grocery_store
+      event: enter
+    action:
+      service: notify.stickyprint
+      data:
+        message: ""
+        title: "Shopping List"
+        data:
+          type: "todo"
+          entity: "todo.shopping_list"
+          font: "console"
+
+  # Alert messages for important notifications
+  - alias: "Critical Alert Print"
+    trigger:
+      platform: state
+      entity_id: binary_sensor.water_leak_detector
+      to: "on"
+    action:
+      service: notify.stickyprint
+      data:
+        message: "🚨 WATER LEAK DETECTED! Check basement immediately."
+        title: "URGENT ALERT"
+        data:
+          font: "sans-serif"
+          font_size: "large"
+
+  # Daily reminders
+  - alias: "Evening Reminder Print"
+    trigger:
+      platform: time
+      at: "20:00:00"
+    condition:
+      condition: state
+      entity_id: binary_sensor.workday_sensor
+      state: "on"
+    action:
+      service: notify.stickyprint
+      data:
+        message: |
+          🌙 Evening Checklist:
+          • Turn off all lights
+          • Lock front door
+          • Check security system
+          • Prepare coffee for tomorrow
+        title: "Evening Reminders"
+        data:
+          font: "console"
+          font_size: "small"
+
+  # Weather forecast
+  - alias: "Morning Weather Print"
+    trigger:
+      platform: time
+      at: "07:30:00"
+    action:
+      service: notify.stickyprint
+      data:
+        message: |
+          🌤️ Today's Weather:
+          {{ states('sensor.temperature') }}°F
+          {{ states('sensor.weather_condition') }}
+          Rain: {{ states('sensor.precipitation_probability') }}%
+          
+          Don't forget your umbrella!
+        title: "Weather Forecast"
+        data:
+          font: "sans-serif"
 ```
 
 #### Python Script Integration
